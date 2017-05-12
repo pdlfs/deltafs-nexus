@@ -20,6 +20,9 @@ add_library (deltafs-nexus deltafs-nexus.cc)
 
 # XXX: Remove when we add to deltafs-umbrella
 target_include_directories (deltafs-nexus PUBLIC ${MERCURY_INCLUDE_DIR})
+target_include_directories (deltafs-nexus BEFORE PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../../include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../../include>)
 target_link_libraries (deltafs-nexus mercury Threads::Threads)
 
 if (CMAKE_THREAD_LIBS_INIT)
@@ -63,3 +66,9 @@ set_property (TARGET deltafs-nexus APPEND PROPERTY LINK_FLAGS
 install (TARGETS deltafs-nexus
          ARCHIVE DESTINATION lib
          LIBRARY DESTINATION lib)
+install (DIRECTORY ../../include/deltafs
+         DESTINATION include
+         FILES_MATCHING PATTERN "*.h")
+install (FILES
+         "${CMAKE_CURRENT_BINARY_DIR}/../../include/deltafs_nexus.h"
+         DESTINATION include/deltafs)
