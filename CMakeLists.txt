@@ -14,9 +14,6 @@ enable_testing ()
 # link shared lib with full rpath
 set (CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
-set (CMAKE_THREAD_PREFER_PTHREAD TRUE)
-set (THREADS_PREFER_PTHREAD_FLAG TRUE)
-
 # nexus library is always shared, force on and hide it as an advanced var
 set (BUILD_SHARED_LIBS On CACHE STRING "Build shared libs (must be on)." FORCE)
 mark_as_advanced (BUILD_SHARED_LIBS)
@@ -49,19 +46,10 @@ if (${CMAKE_BUILD_TYPE} STREQUAL "Debug")
     endif ()
 endif ()
 
-
 # Find required packages
-
-# XXX: cmake 3.1 and newer define a Threads::Threads imported target
-# that we should switch too when we are ready to require 3.1 or better.
-# (3.1 was released late 2014)
-find_package (Threads REQUIRED)
-
 find_package (mercury CONFIG REQUIRED)
-
 find_package (MPI MODULE REQUIRED)
 string (REPLACE " " ";" MPI_CXX_COMPILE_FLAGS_LIST "${MPI_CXX_COMPILE_FLAGS}")
-
 
 add_subdirectory (src)
 add_subdirectory (tests)

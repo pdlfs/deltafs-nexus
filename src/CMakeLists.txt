@@ -8,6 +8,11 @@
 # file if we are being embedded within another project.
 #
 
+# configure/load in standard modules we plan to use
+set (CMAKE_THREAD_PREFER_PTHREAD TRUE)
+set (THREADS_PREFER_PTHREAD_FLAG TRUE)
+find_package (Threads REQUIRED)
+
 #
 # create the library target
 #
@@ -16,6 +21,10 @@ add_library (deltafs-nexus deltafs-nexus.cc)
 # XXX: Remove when we add to deltafs-umbrella
 target_include_directories (deltafs-nexus PUBLIC ${MERCURY_INCLUDE_DIR})
 target_link_libraries (deltafs-nexus mercury Threads::Threads)
+
+if (CMAKE_THREAD_LIBS_INIT)
+  target_link_libraries (deltafs-nexus "${CMAKE_THREAD_LIBS_INIT}")
+endif ()
 
 #
 # make sure we link with MPI
