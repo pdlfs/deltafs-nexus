@@ -8,3 +8,26 @@
  */
 
 #pragma once
+
+#include <mercury.h>
+
+/*
+ * Bootstraps all MPI ranks with the Nexus library
+ */
+int nexus_bootstrap(void);
+
+/*
+ * Destroys the Nexus library freeing all allocated resources
+ */
+int nexus_destroy(void);
+
+/*
+ * Returns the representative MPI rank (in COMM_WORLD) in the node
+ * with the provided rank
+ */
+int nexus_get_rep(int rank);
+
+/*
+ * Returns the Mercury address of the provided rank
+ */
+int nexus_get_addr(int rank, hg_addr_t *addr);

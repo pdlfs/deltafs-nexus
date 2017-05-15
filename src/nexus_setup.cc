@@ -28,12 +28,16 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <stdio.h>
+#include "nexus_internal.h"
 
-#include <mercury.h>
-#include <mercury_macros.h>
+nexus_ctx_t nctx;
 
-int main(int argc, char **argv)
+int nexus_bootstrap(void)
+{
+    return 0;
+}
+
+int nexus_destroy(void)
 {
     return 0;
 }

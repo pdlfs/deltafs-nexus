@@ -20,6 +20,13 @@ set (tests nexus)
 foreach (tst ${tests})
 
     add_executable (${tst}-test ${tst}-test.cc)
+
+    # XXX: I'm not too proud of the following. Perhaps there's a better way?
+    target_link_libraries (${tst}-test deltafs-nexus)
+    target_include_directories (${tst}-test PUBLIC ${MERCURY_INCLUDE_DIR})
+    target_include_directories (${tst}-test BEFORE PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>)
+
     add_test (${tst}-single ${CMAKE_CURRENT_SOURCE_DIR}/${tst}-test.sh
                             ${CMAKE_BINARY_DIR} 1)
     add_test (${tst}-multi  ${CMAKE_CURRENT_SOURCE_DIR}/${tst}-test.sh

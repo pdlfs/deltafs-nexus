@@ -1,5 +1,5 @@
 #
-# CMakeLists.txt  cmake file for deltafs-preload directory
+# CMakeLists.txt  cmake file for deltafs-nexus directory
 # 12-May-2017  chuck@ece.cmu.edu
 #
 
@@ -16,13 +16,12 @@ find_package (Threads REQUIRED)
 #
 # create the library target
 #
-add_library (deltafs-nexus deltafs-nexus.cc)
+add_library (deltafs-nexus nexus_setup.cc nexus_map.cc)
 
 # XXX: Remove when we add to deltafs-umbrella
 target_include_directories (deltafs-nexus PUBLIC ${MERCURY_INCLUDE_DIR})
 target_include_directories (deltafs-nexus BEFORE PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../../include>
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../../include>)
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>)
 target_link_libraries (deltafs-nexus mercury Threads::Threads)
 
 if (CMAKE_THREAD_LIBS_INIT)

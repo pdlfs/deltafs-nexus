@@ -1,36 +1,41 @@
 /*
- * Copyright (c) 2017, Carnegie Mellon University.
+ * Copyright (c) 2017 Carnegie Mellon University.
+ * George Amvrosiadis <gamvrosi@cs.cmu.edu>
+ *
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 3. Neither the name of the University nor the names of its contributors
- *    may be used to endorse or promote products derived from this software
- *    without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT
- * HOLDERS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
- * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
- * OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED
- * AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY
- * WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Use of this source code is governed by a BSD-style license that can be
+ * found in the LICENSE file. See the AUTHORS file for names of contributors.
  */
 
-#include <stdio.h>
+#include <cstdio>
+#include <stdlib.h>
+#include <mpi.h>
+
+#include "deltafs_nexus.h"
 
 int main(int argc, char **argv)
 {
-    return 0;
+    if (MPI_Init(&argc, &argv) != MPI_SUCCESS) {
+        perror("Error: MPI_Init failed");
+        exit(1);
+    }
+
+    if (nexus_bootstrap()) {
+        fprintf(stderr, "Error: nexus_bootstrap failed\n");
+        goto error;
+    }
+
+    if (nexus_destroy()) {
+        fprintf(stderr, "Error: nexus_destroy failed\n");
+        goto error;
+    }
+
+    MPI_Finalize();
+
+    exit(0);
+
+error:
+    MPI_Finalize();
+    exit(1);
 }
