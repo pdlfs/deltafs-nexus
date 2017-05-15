@@ -16,20 +16,15 @@ if [ ! -z "$2" ]; then
     MPI_PROCS=$2
 fi
 
-#rm -Rf /tmp/pdlfs
-#rm -Rf /tmp/pdlfs-test
-#mkdir /tmp/pdlfs
 #
-##
-## XXX: this assumes a SunOS/linux-style ld.so (won't work on macosx)
-##
-#env LD_PRELOAD=$BUILD_PREFIX/src/libdeltafs-preload.so \
-#    mpirun -np $MPI_PROCS -mca btl ^openib $BUILD_PREFIX/tests/deltafs-test
+# XXX: this assumes a SunOS/linux-style ld.so (won't work on macosx)
 #
-#if [ $? != 0 ]; then
-#    echo "Deltafs test failed ($?)"
-#    exit 1
-#fi
+mpirun -np $MPI_PROCS -mca btl ^openib $BUILD_PREFIX/tests/nexus-test
 
-echo "Deltafs-nexus test successful"
+if [ $? != 0 ]; then
+    echo "Nexus test failed ($?)"
+    exit 1
+fi
+
+echo "Nexus test successful"
 exit 0
