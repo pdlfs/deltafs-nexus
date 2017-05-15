@@ -14,7 +14,7 @@
 /*
  * Bootstraps all MPI ranks with the Nexus library
  */
-int nexus_bootstrap(void);
+int nexus_bootstrap(hg_class_t *hg_clz);
 
 /*
  * Destroys the Nexus library freeing all allocated resources
