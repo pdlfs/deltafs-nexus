@@ -20,13 +20,30 @@
 
 #include "deltafs_nexus.h"
 
-/* TODO: Convert to parameters */
-#define TEST_MIN_PORT 50000
-#define TEST_MAX_PORT 59999
-#define TEST_SUBNET "127.0.0.1"
-#define TEST_PROTO "bmi+tcp"
+char *me;
+int myrank, count = 10;
+int minport = 50000;
+int maxport = 59999;
+char subnet[16];
+char proto[8];
 
-int myrank;
+/*
+ * usage: prints usage information and exits
+ */
+static void usage(int ret)
+{
+    printf("usage: %s [options]\n"
+           "\n"
+           "options:\n"
+           " -c count       number of RPCs to perform\n"
+           " -p baseport    base port number\n"
+           " -t proto       transport protocol\n"
+           " -s subnet      subnet for Mercury instances\n"
+           " -h             this usage info\n"
+           "\n", me);
+
+    exit(ret);
+}
 
 /*
  * msg_abort: abort with a message
@@ -61,7 +78,7 @@ static const char* prepare_addr(char* buf)
         msg_abort("getifaddrs failed");
 
     if (myrank == 0)
-        fprintf(stdout, "Info: Using subnet %s*", TEST_SUBNET);
+        fprintf(stdout, "Info: Using subnet %s*", subnet);
 
     for (cur = ifaddr; cur != NULL; cur = cur->ifa_next) {
         if (cur->ifa_addr != NULL) {
@@ -72,7 +89,7 @@ static const char* prepare_addr(char* buf)
                                 sizeof(ip), NULL, 0, NI_NUMERICHOST) == -1)
                     msg_abort("getnameinfo failed");
 
-                if (strncmp(TEST_SUBNET, ip, strlen(TEST_SUBNET)) == 0)
+                if (strncmp(subnet, ip, strlen(subnet)) == 0)
                     break;
             }
         }
@@ -84,16 +101,16 @@ static const char* prepare_addr(char* buf)
     freeifaddrs(ifaddr);
 
     /* sanity check on port range */
-    if (TEST_MAX_PORT - TEST_MIN_PORT < 0)
+    if (maxport - minport < 0)
         msg_abort("bad min-max port");
-    if (TEST_MIN_PORT < 1)
+    if (minport < 1)
         msg_abort("bad min port");
-    if (TEST_MAX_PORT > 65535)
+    if (maxport > 65535)
         msg_abort("bad max port");
 
     if (myrank == 0)
         fprintf(stdout, "Info: Using port range [%d,%d]\n",
-                TEST_MIN_PORT, TEST_MAX_PORT);
+                minport, maxport);
 
 #if MPI_VERSION >= 3
     ret = MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0,
@@ -106,8 +123,8 @@ static const char* prepare_addr(char* buf)
 
     MPI_Comm_rank(comm, &rank);
     MPI_Comm_size(comm, &size);
-    port = TEST_MIN_PORT + (rank % (1 + TEST_MAX_PORT - TEST_MIN_PORT));
-    for (; port <= TEST_MAX_PORT; port += size) {
+    port = minport + (rank % (1 + maxport - minport));
+    for (; port <= maxport; port += size) {
         int so, n = 1;
         struct sockaddr_in addr;
 
@@ -128,7 +145,7 @@ static const char* prepare_addr(char* buf)
         }
     }
 
-    if (port > TEST_MAX_PORT) {
+    if (port > maxport) {
         int so, n = 1;
         struct sockaddr_in addr;
         socklen_t addr_len;
@@ -160,7 +177,7 @@ static const char* prepare_addr(char* buf)
         msg_abort("no free ports");
 
     /* add proto */
-    sprintf(buf, "%s://%s:%d", TEST_PROTO, ip, port);
+    sprintf(buf, "%s://%s:%d", proto, ip, port);
     if (myrank == 0)
         fprintf(stdout, "Info: Using address %s\n", buf);
 
@@ -169,10 +186,56 @@ static const char* prepare_addr(char* buf)
 
 int main(int argc, char **argv)
 {
+    int c;
+    char *end;
     char hgaddr[128];
     hg_class_t *hgcl;
     //hg_context_t *hgctx;
     //hg_id_t hgid;
+
+    me = argv[0];
+
+    if (snprintf(subnet, sizeof(subnet), "127.0.0.1") <= 0)
+        msg_abort("sprintf for subnet failed");
+
+    if (snprintf(proto, sizeof(proto), "bmi+tcp") <= 0)
+        msg_abort("sprintf for proto failed");
+
+    while ((c = getopt(argc, argv, "c:p:t:s:h")) != -1) {
+        switch(c) {
+        case 'h': /* print help */
+            usage(0);
+        case 'c': /* number of RPCs to transport */
+            count = strtol(optarg, &end, 10);
+            if (*end) {
+                perror("Error: invalid RPC count");
+                usage(1);
+            }
+            break;
+        case 'p': /* base port number */
+            minport = strtol(optarg, &end, 10);
+            if (*end) {
+                perror("Error: invalid base port");
+                usage(1);
+            }
+            maxport = minport + 9999;
+            break;
+        case 't': /* transport protocol */
+            if (!strncpy(proto, optarg, sizeof(proto))) {
+                perror("Error: invalid proto");
+                usage(1);
+            }
+            break;
+        case 's': /* subnet to pick IP from */
+            if (!strncpy(subnet, optarg, sizeof(subnet))) {
+                perror("Error: invalid subnet");
+                usage(1);
+            }
+            break;
+        default:
+            usage(1);
+        }
+    }
 
     if (MPI_Init(&argc, &argv) != MPI_SUCCESS) {
         perror("Error: MPI_Init failed");
