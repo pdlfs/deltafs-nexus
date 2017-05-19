@@ -22,6 +22,11 @@ int nexus_bootstrap(hg_class_t *hg_clz);
 int nexus_destroy(void);
 
 /*
+ * Returns true if the rank is local to the caller
+ */
+bool nexus_is_local(int rank);
+
+/*
  * Returns the representative MPI rank (in COMM_WORLD) in the node
  * with the provided rank
  */
