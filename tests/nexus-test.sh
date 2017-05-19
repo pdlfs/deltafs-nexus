@@ -19,7 +19,7 @@ fi
 #
 # XXX: this assumes a SunOS/linux-style ld.so (won't work on macosx)
 #
-mpirun -np $MPI_PROCS -mca btl ^openib $BUILD_PREFIX/tests/nexus-test
+mpirun -np $MPI_PROCS -mca btl ^openib $BUILD_PREFIX/tests/nexus-test -s "10.92"
 
 if [ $? != 0 ]; then
     echo "Nexus test failed ($?)"

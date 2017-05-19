@@ -20,12 +20,23 @@
 
 #include "deltafs_nexus.h"
 
+struct test_ctx {
+    int myrank;
+    int ranksize;
+
+    int count;
+    int minport;
+    int maxport;
+    char subnet[16];
+    char proto[8];
+
+    /* Mercury state */
+    char hgaddr[128];
+    hg_class_t *hgcl;
+};
+
 char *me;
-int myrank, count = 10;
-int minport = 50000;
-int maxport = 59999;
-char subnet[16];
-char proto[8];
+struct test_ctx tctx;
 
 /*
  * usage: prints usage information and exits
@@ -77,9 +88,6 @@ static const char* prepare_addr(char* buf)
     if (getifaddrs(&ifaddr) == -1)
         msg_abort("getifaddrs failed");
 
-    if (myrank == 0)
-        fprintf(stdout, "Info: Using subnet %s*", subnet);
-
     for (cur = ifaddr; cur != NULL; cur = cur->ifa_next) {
         if (cur->ifa_addr != NULL) {
             family = cur->ifa_addr->sa_family;
@@ -89,7 +97,7 @@ static const char* prepare_addr(char* buf)
                                 sizeof(ip), NULL, 0, NI_NUMERICHOST) == -1)
                     msg_abort("getnameinfo failed");
 
-                if (strncmp(subnet, ip, strlen(subnet)) == 0)
+                if (strncmp(tctx.subnet, ip, strlen(tctx.subnet)) == 0)
                     break;
             }
         }
@@ -101,16 +109,12 @@ static const char* prepare_addr(char* buf)
     freeifaddrs(ifaddr);
 
     /* sanity check on port range */
-    if (maxport - minport < 0)
+    if (tctx.maxport - tctx.minport < 0)
         msg_abort("bad min-max port");
-    if (minport < 1)
+    if (tctx.minport < 1)
         msg_abort("bad min port");
-    if (maxport > 65535)
+    if (tctx.maxport > 65535)
         msg_abort("bad max port");
-
-    if (myrank == 0)
-        fprintf(stdout, "Info: Using port range [%d,%d]\n",
-                minport, maxport);
 
 #if MPI_VERSION >= 3
     ret = MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0,
@@ -123,8 +127,8 @@ static const char* prepare_addr(char* buf)
 
     MPI_Comm_rank(comm, &rank);
     MPI_Comm_size(comm, &size);
-    port = minport + (rank % (1 + maxport - minport));
-    for (; port <= maxport; port += size) {
+    port = tctx.minport + (rank % (1 + tctx.maxport - tctx.minport));
+    for (; port <= tctx.maxport; port += size) {
         int so, n = 1;
         struct sockaddr_in addr;
 
@@ -137,15 +141,14 @@ static const char* prepare_addr(char* buf)
             addr.sin_port = htons(port);
             n = bind(so, (struct sockaddr*)&addr, sizeof(addr));
             close(so);
-            if (n == 0) {
+            if (n == 0)
                 break; /* done */
-            }
         } else {
             msg_abort("socket");
         }
     }
 
-    if (port > maxport) {
+    if (port > tctx.maxport) {
         int so, n = 1;
         struct sockaddr_in addr;
         socklen_t addr_len;
@@ -162,10 +165,8 @@ static const char* prepare_addr(char* buf)
             n = bind(so, (struct sockaddr*)&addr, sizeof(addr));
             if (n == 0) {
                 n = getsockname(so, (struct sockaddr*)&addr, &addr_len);
-                if (n == 0) {
-                    port = ntohs(addr.sin_port);
-                    /* okay */
-                }
+                if (n == 0)
+                    port = ntohs(addr.sin_port); /* okay */
             }
             close(so);
         } else {
@@ -177,28 +178,57 @@ static const char* prepare_addr(char* buf)
         msg_abort("no free ports");
 
     /* add proto */
-    sprintf(buf, "%s://%s:%d", proto, ip, port);
-    if (myrank == 0)
+    sprintf(buf, "%s://%s:%d", tctx.proto, ip, port);
+    if (tctx.myrank == 0)
         fprintf(stdout, "Info: Using address %s\n", buf);
 
     return (buf);
+}
+
+void print_hg_addr(hg_class_t *hgcl, int rank, const char *str)
+{
+    char *addr_str = NULL;
+    hg_size_t addr_size = 0;
+    hg_addr_t hgaddr;
+    hg_return_t hret;
+
+    if (nexus_get_addr(rank, &hgaddr))
+        msg_abort("nexus_get_addr failed");
+
+    hret = HG_Addr_to_string(hgcl, NULL, &addr_size, hgaddr);
+    if (hgaddr == NULL)
+        msg_abort("HG_Addr_to_string failed");
+
+    addr_str = (char *)malloc(addr_size);
+    if (addr_str == NULL)
+        msg_abort("malloc failed");
+
+    hret = HG_Addr_to_string(hgcl, addr_str, &addr_size, hgaddr);
+    if (hret != HG_SUCCESS)
+        msg_abort("HG_Addr_to_string failed");
+
+    fprintf(stdout, "[r%d] %s addr: %s\n", rank, str, addr_str);
 }
 
 int main(int argc, char **argv)
 {
     int c;
     char *end;
-    char hgaddr[128];
-    hg_class_t *hgcl;
-    //hg_context_t *hgctx;
-    //hg_id_t hgid;
 
     me = argv[0];
 
-    if (snprintf(subnet, sizeof(subnet), "127.0.0.1") <= 0)
+    /* set random data generator seed */
+    srandom(getpid());
+
+    /* set default parameter values */
+    tctx.count = 2;
+    tctx.minport = 50000;
+    tctx.maxport = 59999;
+
+    if (snprintf(tctx.subnet, sizeof(tctx.subnet), "127.0.0.1") <= 0)
         msg_abort("sprintf for subnet failed");
 
-    if (snprintf(proto, sizeof(proto), "bmi+tcp") <= 0)
+    if (snprintf(tctx.proto, sizeof(tctx.proto), "bmi+tcp") <= 0)
         msg_abort("sprintf for proto failed");
 
     while ((c = getopt(argc, argv, "c:p:t:s:h")) != -1) {
@@ -206,28 +236,28 @@ int main(int argc, char **argv)
         case 'h': /* print help */
             usage(0);
         case 'c': /* number of RPCs to transport */
-            count = strtol(optarg, &end, 10);
+            tctx.count = strtol(optarg, &end, 10);
             if (*end) {
                 perror("Error: invalid RPC count");
                 usage(1);
             }
             break;
         case 'p': /* base port number */
-            minport = strtol(optarg, &end, 10);
+            tctx.minport = strtol(optarg, &end, 10);
             if (*end) {
                 perror("Error: invalid base port");
                 usage(1);
             }
-            maxport = minport + 9999;
+            tctx.maxport = tctx.minport + 9999;
             break;
         case 't': /* transport protocol */
-            if (!strncpy(proto, optarg, sizeof(proto))) {
+            if (!strncpy(tctx.proto, optarg, sizeof(tctx.proto))) {
                 perror("Error: invalid proto");
                 usage(1);
             }
             break;
         case 's': /* subnet to pick IP from */
-            if (!strncpy(subnet, optarg, sizeof(subnet))) {
+            if (!strncpy(tctx.subnet, optarg, sizeof(tctx.subnet))) {
                 perror("Error: invalid subnet");
                 usage(1);
             }
@@ -242,22 +272,53 @@ int main(int argc, char **argv)
         exit(1);
     }
 
+    MPI_Comm_size(MPI_COMM_WORLD, &(tctx.ranksize));
+    MPI_Comm_rank(MPI_COMM_WORLD, &(tctx.myrank));
+
+    /* Output test configuration */
+    if (!tctx.myrank) {
+        printf("\n%s options:\n", me);
+        printf("\tTrials = %d\n", tctx.count);
+        printf("\tPorts used = %d - %d\n", tctx.minport, tctx.maxport);
+        printf("\tProtocol = %s\n", tctx.proto);
+        printf("\tSubnet = %s\n", tctx.subnet);
+    }
+
     /* Create Mercury instance */
-    MPI_Comm_rank(MPI_COMM_WORLD, &myrank);
-    prepare_addr(hgaddr);
-    fprintf(stderr, "Generated address: %s\n", hgaddr);
-    hgcl = HG_Init(hgaddr, HG_TRUE);
-    if (!hgcl)
+    prepare_addr(tctx.hgaddr);
+
+    tctx.hgcl = HG_Init(tctx.hgaddr, HG_TRUE);
+    if (!tctx.hgcl)
         msg_abort("HG_Init failed");
 
-    /* TODO: Register RPCs */
-
-    if (nexus_bootstrap(hgcl)) {
+    if (nexus_bootstrap(tctx.hgcl)) {
         fprintf(stderr, "Error: nexus_bootstrap failed\n");
         goto error;
     }
 
-    /* TODO: Exchange RPCs */
+    for (int i = 1; i <= tctx.count; i++) {
+        int srcrep = -1, dstrep = -1;
+        int src = tctx.myrank;
+        int dst = rand() % tctx.ranksize; /* not uniform, but ok */
+
+        if (nexus_is_local(src))
+            goto done;
+
+        /* Not local, get reps */
+        srcrep = nexus_get_rep(src);
+        dstrep = nexus_get_rep(dst);
+        if (srcrep == -1 || dstrep == -1)
+            msg_abort("nexus_get_rep failed");
+
+        print_hg_addr(tctx.hgcl, srcrep, "srcrep");
+        print_hg_addr(tctx.hgcl, dstrep, "dstrep");
+done:
+        print_hg_addr(tctx.hgcl, src, "src");
+
+        fprintf(stdout, "[r%d,i%d] Route: src=%d -> src_rep=%d"
+                        " -> dst_rep=%d -> dst=%d\n",
+                src, i, src, srcrep, dstrep, dst);
+    }
 
     if (nexus_destroy()) {
         fprintf(stderr, "Error: nexus_destroy failed\n");
@@ -265,8 +326,7 @@ int main(int argc, char **argv)
     }
 
     /* Destroy Mercury instance */
-    if (hgcl)
-        HG_Finalize(hgcl);
+    HG_Finalize(tctx.hgcl);
     MPI_Finalize();
     exit(0);
 
