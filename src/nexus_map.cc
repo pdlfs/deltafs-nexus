@@ -30,17 +30,17 @@
 
 #include "nexus_internal.h"
 
-bool nexus_is_local(int rank)
+bool nexus_is_local(nexus_ctx_t *nctx, int rank)
 {
     return 0;
 }
 
-int nexus_get_rep(int rank)
+int nexus_get_rep(nexus_ctx_t *nctx, int rank)
 {
     return -1;
 }
 
-int nexus_get_addr(int rank, hg_addr_t *addr)
+int nexus_get_addr(nexus_ctx_t *nctx, int rank, hg_addr_t *addr)
 {
     return 1;
 }

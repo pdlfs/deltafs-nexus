@@ -30,25 +30,14 @@
 
 #include "nexus_internal.h"
 
-struct ssg
-{
-    hg_class_t *hgcl;
-    char **addr_strs;
-    hg_addr_t *addrs;
-    void *backing_buf;
-    int num_addrs;
-    int buf_size;
-    int rank;
-};
-
-// using pointer so that we can use proc (proc has to allocate in this case)
-typedef struct ssg *ssg_t;
-
 // some defines
 // null pointer shim
 #define SSG_NULL ((ssg_t)NULL)
-
-nexus_ctx_t nctx;
+// after init, rank is possibly unknown
+#define SSG_RANK_UNKNOWN (-1)
+// if ssg_t is gotten from another process (RPC output), then, by definition,
+// the receiving entity is not part of the group
+#define SSG_EXTERNAL_RANK (-2)
 
 /* XXX: Following code was copied from ssg. Could use some optimization */
 static char** setup_addr_str_list(int num_addrs, char * buf)
@@ -63,6 +52,148 @@ static char** setup_addr_str_list(int num_addrs, char * buf)
     }
 
     return ret;
+}
+
+static hg_return_t ssg_resolve_rank(ssg_t s, hg_class_t *hgcl)
+{
+    if (s->rank == SSG_EXTERNAL_RANK || s->rank != SSG_RANK_UNKNOWN)
+        return HG_SUCCESS;
+
+    // helpers
+    hg_addr_t self_addr = HG_ADDR_NULL;
+    char * self_addr_str = NULL;
+    const char * self_addr_substr = NULL;
+    hg_size_t self_addr_size = 0;
+    const char * addr_substr = NULL;
+    int rank = 0;
+    hg_return_t hret;
+
+    // get my address
+    hret = HG_Addr_self(hgcl, &self_addr);
+    if (hret != HG_SUCCESS) goto end;
+    hret = HG_Addr_to_string(hgcl, NULL, &self_addr_size, self_addr);
+    if (self_addr == NULL) { hret = HG_NOMEM_ERROR; goto end;  }
+    self_addr_str = (char *)malloc(self_addr_size);
+    if (self_addr_str == NULL) { hret = HG_NOMEM_ERROR; goto end;  }
+    hret = HG_Addr_to_string(hgcl, self_addr_str, &self_addr_size, self_addr);
+    if (hret != HG_SUCCESS) goto end;
+
+    // strstr is used here b/c there may be inconsistencies in whether the class
+    // is included in the address or not (it's not in HG_Addr_to_string, it
+    // should be in ssg_init_config)
+    self_addr_substr = strstr(self_addr_str, "://");
+    if (self_addr_substr == NULL) { hret = HG_INVALID_PARAM; goto end;  }
+    self_addr_substr += 3;
+    for (rank = 0; rank < s->num_addrs; rank++) {
+        addr_substr = strstr(s->addr_strs[rank], "://");
+        if (addr_substr == NULL) { hret = HG_INVALID_PARAM; goto end;  }
+        addr_substr+= 3;
+        if (strcmp(self_addr_substr, addr_substr) == 0)
+            break;
+    }
+    if (rank == s->num_addrs) {
+        hret = HG_INVALID_PARAM;
+        goto end;
+    }
+
+    // success - set
+    s->rank = rank;
+    s->addrs[rank] = self_addr; self_addr = HG_ADDR_NULL;
+
+end:
+    if (self_addr != HG_ADDR_NULL) HG_Addr_free(hgcl, self_addr);
+    free(self_addr_str);
+
+    return hret;
+}
+
+typedef struct ssg_lookup_out
+{
+    hg_return_t hret;
+    hg_addr_t addr;
+    int *cb_count;
+} ssg_lookup_out_t;
+
+static hg_return_t ssg_lookup_cb(const struct hg_cb_info *info)
+{
+    ssg_lookup_out_t *out = (ssg_lookup_out_t *)info->arg;
+    *out->cb_count += 1;
+    out->hret = info->ret;
+    if (out->hret != HG_SUCCESS)
+        out->addr = HG_ADDR_NULL;
+    else
+        out->addr = info->info.lookup.addr;
+    return HG_SUCCESS;
+}
+
+static hg_return_t ssg_lookup(ssg_t s, hg_context_t *hgctx)
+{
+    // set of outputs
+    ssg_lookup_out_t *out = NULL;
+    int cb_count = 0;
+    // "effective" rank for the lookup loop
+    int eff_rank = 0;
+
+    // set the hg class up front - need for destructing addrs
+    s->hgcl = HG_Context_get_class(hgctx);
+    if (s->hgcl == NULL) return HG_INVALID_PARAM;
+
+    // perform search for my rank if not already set
+    if (s->rank == SSG_RANK_UNKNOWN) {
+        hg_return_t hret = ssg_resolve_rank(s, s->hgcl);
+        if (hret != HG_SUCCESS) return hret;
+    }
+
+    if (s->rank == SSG_EXTERNAL_RANK) {
+        // do a completely arbitrary effective rank determination to try and
+        // prevent everyone talking to the same member at once
+        eff_rank = (((intptr_t)hgctx)/sizeof(hgctx)) % s->num_addrs;
+    } else {
+        eff_rank = s->rank;
+        cb_count++;
+    }
+
+    // init addr metadata
+    out = (ssg_lookup_out_t *)malloc(s->num_addrs * sizeof(*out));
+    if (out == NULL) return HG_NOMEM_ERROR;
+    // FIXME: lookups don't have a cancellation path, so in an intermediate
+    // error we can't free the memory, lest we cause a segfault
+
+    // rank is set, perform lookup
+    hg_return_t hret;
+    for (int i = (s->rank != SSG_EXTERNAL_RANK); i < s->num_addrs; i++) {
+        int r = (eff_rank+i) % s->num_addrs;
+        out[r].cb_count = &cb_count;
+        hret = HG_Addr_lookup(hgctx, &ssg_lookup_cb, &out[r],
+                s->addr_strs[r], HG_OP_ID_IGNORE);
+        if (hret != HG_SUCCESS) return hret;
+    }
+
+    // lookups posted, enter the progress loop until finished
+    do {
+        unsigned int count = 0;
+        do {
+            hret = HG_Trigger(hgctx, 0, 1, &count);
+        } while (hret == HG_SUCCESS && count > 0);
+        if (hret != HG_SUCCESS && hret != HG_TIMEOUT) return hret;
+        hret = HG_Progress(hgctx, 100);
+    } while (cb_count < s->num_addrs &&
+            (hret == HG_SUCCESS || hret == HG_TIMEOUT));
+
+    if (hret != HG_SUCCESS && hret != HG_TIMEOUT)
+        return hret;
+
+    for (int i = 0; i < s->num_addrs; i++) {
+        if (i != s->rank) {
+            if (out[i].hret != HG_SUCCESS)
+                return out[i].hret;
+            else
+                s->addrs[i] = out[i].addr;
+        }
+    }
+
+    free(out);
+    return HG_SUCCESS;
 }
 
 static ssg_t ssg_init_mpi(hg_class_t *hgcl, MPI_Comm comm)
@@ -170,18 +301,23 @@ static void ssg_finalize(ssg_t s)
     free(s);
 }
 
-int nexus_bootstrap(hg_class_t *hg_clz)
+int nexus_bootstrap(nexus_ctx_t *nctx, hg_class_t *hgcl, hg_context_t *hgctx)
 {
-    ssg_t ssg;
+    hg_return_t hret;
 
-    ssg = ssg_init_mpi(hg_clz, MPI_COMM_WORLD);
-    if (ssg == SSG_NULL)
-        msg_abort("ssg_lookup");
+    nctx->sctx = ssg_init_mpi(hgcl, MPI_COMM_WORLD);
+    if (nctx->sctx == SSG_NULL)
+        msg_abort("ssg_init_mpi failed");
+
+    hret = ssg_lookup(nctx->sctx, hgctx);
+    if (hret != HG_SUCCESS)
+        msg_abort("ssg_lookup failed");
 
     return 0;
 }
 
-int nexus_destroy(void)
+int nexus_destroy(nexus_ctx_t *nctx)
 {
+    ssg_finalize(nctx->sctx);
     return 0;
 }

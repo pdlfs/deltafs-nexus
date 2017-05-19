@@ -18,7 +18,7 @@
 #include <netdb.h>
 #include <mpi.h>
 
-#include "deltafs_nexus.h"
+#include <deltafs_nexus.h>
 
 struct test_ctx {
     int myrank;
@@ -33,6 +33,10 @@ struct test_ctx {
     /* Mercury state */
     char hgaddr[128];
     hg_class_t *hgcl;
+    hg_context_t *hgctx;
+
+    /* Nexus context */
+    nexus_ctx_t nctx;
 };
 
 char *me;
@@ -184,7 +188,7 @@ static const char* prepare_addr(char* buf)
 
     return (buf);
 }
-
+#if 0
 void print_hg_addr(hg_class_t *hgcl, int rank, const char *str)
 {
     char *addr_str = NULL;
@@ -209,7 +213,7 @@ void print_hg_addr(hg_class_t *hgcl, int rank, const char *str)
 
     fprintf(stdout, "[r%d] %s addr: %s\n", rank, str, addr_str);
 }
-
+#endif
 int main(int argc, char **argv)
 {
     int c;
@@ -291,11 +295,16 @@ int main(int argc, char **argv)
     if (!tctx.hgcl)
         msg_abort("HG_Init failed");
 
-    if (nexus_bootstrap(tctx.hgcl)) {
+    tctx.hgctx = HG_Context_create(tctx.hgcl);
+    if (!tctx.hgctx)
+        msg_abort("HG_Context_create failed");
+
+    if (nexus_bootstrap(&(tctx.nctx), tctx.hgcl, tctx.hgctx)) {
         fprintf(stderr, "Error: nexus_bootstrap failed\n");
         goto error;
     }
 
+#if 0
     for (int i = 1; i <= tctx.count; i++) {
         int srcrep = -1, dstrep = -1;
         int src = tctx.myrank;
@@ -319,13 +328,15 @@ done:
                         " -> dst_rep=%d -> dst=%d\n",
                 src, i, src, srcrep, dstrep, dst);
     }
+#endif
 
-    if (nexus_destroy()) {
+    if (nexus_destroy(&(tctx.nctx))) {
         fprintf(stderr, "Error: nexus_destroy failed\n");
         goto error;
     }
 
     /* Destroy Mercury instance */
+    HG_Context_destroy(tctx.hgctx);
     HG_Finalize(tctx.hgcl);
     MPI_Finalize();
     exit(0);
