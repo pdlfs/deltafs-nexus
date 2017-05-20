@@ -12,10 +12,6 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <errno.h>
-#include <ifaddrs.h>
-#include <arpa/inet.h>
-#include <sys/socket.h>
-#include <netdb.h>
 #include <mpi.h>
 
 #include <deltafs_nexus.h>
@@ -29,11 +25,6 @@ struct test_ctx {
     int maxport;
     char subnet[16];
     char proto[8];
-
-    /* Mercury state */
-    char hgaddr[128];
-    hg_class_t *hgcl;
-    hg_context_t *hgctx;
 
     /* Nexus context */
     nexus_ctx_t nctx;
@@ -74,120 +65,6 @@ static inline void msg_abort(const char* msg)
     abort();
 }
 
-/*
- * prepare_addr(): obtain the mercury addr to bootstrap the rpc
- *
- * Write the server uri into *buf on success.
- *
- * Abort on errors.
- */
-static const char* prepare_addr(char* buf)
-{
-    struct ifaddrs *ifaddr, *cur;
-    int family, ret, rank, size, port;
-    char ip[16];
-    MPI_Comm comm;
-
-    /* Query local socket layer to get our IP addr */
-    if (getifaddrs(&ifaddr) == -1)
-        msg_abort("getifaddrs failed");
-
-    for (cur = ifaddr; cur != NULL; cur = cur->ifa_next) {
-        if (cur->ifa_addr != NULL) {
-            family = cur->ifa_addr->sa_family;
-
-            if (family == AF_INET) {
-                if (getnameinfo(cur->ifa_addr, sizeof(struct sockaddr_in), ip,
-                                sizeof(ip), NULL, 0, NI_NUMERICHOST) == -1)
-                    msg_abort("getnameinfo failed");
-
-                if (strncmp(tctx.subnet, ip, strlen(tctx.subnet)) == 0)
-                    break;
-            }
-        }
-    }
-
-    if (cur == NULL)
-        msg_abort("no ip addr");
-
-    freeifaddrs(ifaddr);
-
-    /* sanity check on port range */
-    if (tctx.maxport - tctx.minport < 0)
-        msg_abort("bad min-max port");
-    if (tctx.minport < 1)
-        msg_abort("bad min port");
-    if (tctx.maxport > 65535)
-        msg_abort("bad max port");
-
-#if MPI_VERSION >= 3
-    ret = MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0,
-                             MPI_INFO_NULL, &comm);
-    if (ret != MPI_SUCCESS)
-        msg_abort("MPI_Comm_split_type failed");
-#else
-    comm = MPI_COMM_WORLD;
-#endif
-
-    MPI_Comm_rank(comm, &rank);
-    MPI_Comm_size(comm, &size);
-    port = tctx.minport + (rank % (1 + tctx.maxport - tctx.minport));
-    for (; port <= tctx.maxport; port += size) {
-        int so, n = 1;
-        struct sockaddr_in addr;
-
-        /* test port availability */
-        so = socket(PF_INET, SOCK_STREAM, 0);
-        setsockopt(so, SOL_SOCKET, SO_REUSEADDR, &n, sizeof(n));
-        if (so != -1) {
-            addr.sin_family = AF_INET;
-            addr.sin_addr.s_addr = INADDR_ANY;
-            addr.sin_port = htons(port);
-            n = bind(so, (struct sockaddr*)&addr, sizeof(addr));
-            close(so);
-            if (n == 0)
-                break; /* done */
-        } else {
-            msg_abort("socket");
-        }
-    }
-
-    if (port > tctx.maxport) {
-        int so, n = 1;
-        struct sockaddr_in addr;
-        socklen_t addr_len;
-
-        port = 0;
-        fprintf(stderr, "Warning: no free ports available within the specified "
-                "range\n>>> auto detecting ports ...\n");
-        so = socket(PF_INET, SOCK_STREAM, 0);
-        setsockopt(so, SOL_SOCKET, SO_REUSEADDR, &n, sizeof(n));
-        if (so != -1) {
-            addr.sin_family = AF_INET;
-            addr.sin_addr.s_addr = INADDR_ANY;
-            addr.sin_port = htons(0);
-            n = bind(so, (struct sockaddr*)&addr, sizeof(addr));
-            if (n == 0) {
-                n = getsockname(so, (struct sockaddr*)&addr, &addr_len);
-                if (n == 0)
-                    port = ntohs(addr.sin_port); /* okay */
-            }
-            close(so);
-        } else {
-            msg_abort("socket");
-        }
-    }
-
-    if (port == 0)
-        msg_abort("no free ports");
-
-    /* add proto */
-    sprintf(buf, "%s://%s:%d", tctx.proto, ip, port);
-    if (tctx.myrank == 0)
-        fprintf(stdout, "Info: Using address %s\n", buf);
-
-    return (buf);
-}
 #if 0
 void print_hg_addr(hg_class_t *hgcl, int rank, const char *str)
 {
@@ -214,6 +91,7 @@ void print_hg_addr(hg_class_t *hgcl, int rank, const char *str)
     fprintf(stdout, "[r%d] %s addr: %s\n", rank, str, addr_str);
 }
 #endif
+
 int main(int argc, char **argv)
 {
     int c;
@@ -284,22 +162,12 @@ int main(int argc, char **argv)
         printf("\n%s options:\n", me);
         printf("\tTrials = %d\n", tctx.count);
         printf("\tPorts used = %d - %d\n", tctx.minport, tctx.maxport);
-        printf("\tProtocol = %s\n", tctx.proto);
         printf("\tSubnet = %s\n", tctx.subnet);
+        printf("\tProtocol = %s\n", tctx.proto);
     }
 
-    /* Create Mercury instance */
-    prepare_addr(tctx.hgaddr);
-
-    tctx.hgcl = HG_Init(tctx.hgaddr, HG_TRUE);
-    if (!tctx.hgcl)
-        msg_abort("HG_Init failed");
-
-    tctx.hgctx = HG_Context_create(tctx.hgcl);
-    if (!tctx.hgctx)
-        msg_abort("HG_Context_create failed");
-
-    if (nexus_bootstrap(&(tctx.nctx), tctx.hgcl, tctx.hgctx)) {
+    if (nexus_bootstrap(&(tctx.nctx), tctx.minport, tctx.maxport,
+                        tctx.subnet, tctx.proto)) {
         fprintf(stderr, "Error: nexus_bootstrap failed\n");
         goto error;
     }
@@ -335,9 +203,6 @@ done:
         goto error;
     }
 
-    /* Destroy Mercury instance */
-    HG_Context_destroy(tctx.hgctx);
-    HG_Finalize(tctx.hgcl);
     MPI_Finalize();
     exit(0);
 

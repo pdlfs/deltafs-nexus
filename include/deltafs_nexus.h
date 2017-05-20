@@ -27,6 +27,12 @@ struct nexus_ctx
 
     int *replist;                   /* array of rank -> representative */
     map<int, hg_addr_t> hgaddrs;    /* map of rank -> hg address */
+
+    /* Mercury endpoint state */
+    hg_class_t *remote_hgcl;
+    hg_context_t *remote_hgctx;
+    hg_class_t *local_hgcl;
+    hg_context_t *local_hgctx;
 };
 
 typedef struct nexus_ctx nexus_ctx_t;
@@ -34,7 +40,11 @@ typedef struct nexus_ctx nexus_ctx_t;
 /*
  * Bootstraps all MPI ranks with the Nexus library
  */
-int nexus_bootstrap(nexus_ctx_t *nctx, hg_class_t *hgcl, hg_context_t *hgctx);
+int nexus_bootstrap(nexus_ctx_t *nctx,
+                    int minport,
+                    int maxport,
+                    char *subnet,
+                    char *proto);
 
 /*
  * Destroys the Nexus library freeing all allocated resources
