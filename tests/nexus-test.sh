@@ -17,6 +17,12 @@ if [ ! -z "$2" ]; then
 fi
 
 #
+# Remove /tmp/na_sm directory in case we hit the same PID
+# XXX: this assumes we're the only ones using na+sm instances
+#
+rm -Rf /tmp/na_sm
+
+#
 # XXX: this assumes a SunOS/linux-style ld.so (won't work on macosx)
 #
 mpirun -np $MPI_PROCS -mca btl ^openib $BUILD_PREFIX/tests/nexus-test -s "10.92"

@@ -166,6 +166,9 @@ static void discover_local_info(nexus_ctx_t *nctx)
     MPI_Comm_size(localcomm, &(nctx->localsize));
 
     /* Initialize local Mercury listening endpoint */
+    if (nctx->localrank)
+        goto xchginfo;
+
     sprintf(hgaddr, "na+sm://%d/0", getpid());
 
     nctx->local_hgcl = HG_Init(hgaddr, HG_TRUE);
@@ -175,6 +178,9 @@ static void discover_local_info(nexus_ctx_t *nctx)
     nctx->local_hgctx = HG_Context_create(nctx->local_hgcl);
     if (!nctx->local_hgctx)
         msg_abort("HG_Context_create failed for local endpoint");
+
+xchginfo:
+    return;
 }
 
 static void discover_remote_info(nexus_ctx_t *nctx, char *hgaddr)
@@ -220,8 +226,10 @@ int nexus_destroy(nexus_ctx_t *nctx)
     HG_Context_destroy(nctx->remote_hgctx);
     HG_Finalize(nctx->remote_hgcl);
 
-    HG_Context_destroy(nctx->local_hgctx);
-    HG_Finalize(nctx->local_hgcl);
+    if (!nctx->localrank) {
+        HG_Context_destroy(nctx->local_hgctx);
+        HG_Finalize(nctx->local_hgcl);
+    }
 
     return 0;
 }
