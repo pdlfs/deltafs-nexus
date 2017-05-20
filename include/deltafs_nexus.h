@@ -13,19 +13,6 @@
 #include <mercury.h>
 using namespace std;
 
-struct ssg
-{
-    hg_class_t *hgcl;
-    char **addr_strs;
-    hg_addr_t *addrs;
-    void *backing_buf;
-    int num_addrs;
-    int buf_size;
-    int rank;
-};
-
-typedef struct ssg *ssg_t; /* pointer so we can use proc (proc allocates) */
-
 /*
  * Nexus library context
  */
@@ -40,8 +27,6 @@ struct nexus_ctx
 
     int *replist;                   /* array of rank -> representative */
     map<int, hg_addr_t> hgaddrs;    /* map of rank -> hg address */
-
-    ssg_t sctx;
 };
 
 typedef struct nexus_ctx nexus_ctx_t;
