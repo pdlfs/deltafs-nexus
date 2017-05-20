@@ -301,6 +301,27 @@ static void ssg_finalize(ssg_t s)
     free(s);
 }
 
+static void discover_local_cores(nexus_ctx_t *nctx)
+{
+    int ret;
+    MPI_Comm localcomm;
+
+#if MPI_VERSION >= 3
+    ret = MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0,
+                              MPI_INFO_NULL, &localcomm);
+    if (ret != MPI_SUCCESS)
+        msg_abort("MPI_Comm_split_type failed");
+#else
+    /* XXX: Need to find a way to deal with MPI_VERSION < 3 */
+    msg_abort("Nexus needs MPI version 3 or higher");
+#endif
+
+    MPI_Comm_rank(localcomm, &(nctx->localrank));
+    MPI_Comm_size(localcomm, &(nctx->localsize));
+
+    /* TODO: Initialize local Mercury listening endpoint */
+}
+
 int nexus_bootstrap(nexus_ctx_t *nctx, hg_class_t *hgcl, hg_context_t *hgctx)
 {
     hg_return_t hret;
@@ -312,6 +333,21 @@ int nexus_bootstrap(nexus_ctx_t *nctx, hg_class_t *hgcl, hg_context_t *hgctx)
     hret = ssg_lookup(nctx->sctx, hgctx);
     if (hret != HG_SUCCESS)
         msg_abort("ssg_lookup failed");
+
+    /* Grab MPI rank info */
+    MPI_Comm_rank(MPI_COMM_WORLD, &(nctx->myrank));
+    MPI_Comm_size(MPI_COMM_WORLD, &(nctx->ranksize));
+
+    discover_local_cores(nctx);
+
+#ifdef NEXUS_DEBUG
+    fprintf(stdout, "[%d] Nexus bootstrap complete:\n", nctx->myrank);
+    fprintf(stdout, "[%d]\tmyrank = %d\n", nctx->myrank, nctx->myrank);
+    fprintf(stdout, "[%d]\tlocalrank = %d\n", nctx->myrank, nctx->localrank);
+    fprintf(stdout, "[%d]\treprank = %d\n", nctx->myrank, nctx->reprank);
+    fprintf(stdout, "[%d]\tranksize = %d\n", nctx->myrank, nctx->ranksize);
+    fprintf(stdout, "[%d]\tlocalsize = %d\n", nctx->myrank, nctx->localsize);
+#endif /* NEXUS_DEBUG */
 
     return 0;
 }

@@ -32,10 +32,11 @@ typedef struct ssg *ssg_t; /* pointer so we can use proc (proc allocates) */
 struct nexus_ctx
 {
     int myrank;                     /* my MPI rank */
+    int localrank;                  /* my local MPI rank */
     int reprank;                    /* my representative's rank */
 
     int ranksize;                   /* total number of ranks */
-    int nlocal;                     /* number of ranks in my node */
+    int localsize;                  /* number of local ranks (in my node) */
 
     int *replist;                   /* array of rank -> representative */
     map<int, hg_addr_t> hgaddrs;    /* map of rank -> hg address */
