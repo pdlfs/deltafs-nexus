@@ -17,10 +17,11 @@ if [ ! -z "$2" ]; then
 fi
 
 #
-# Remove /tmp/na_sm directory in case we hit the same PID
+# Remove na_sm files in case we hit the same PID
 # XXX: this assumes we're the only ones using na+sm instances
 #
 rm -Rf /tmp/na_sm
+rm -Rf /dev/shm/na_sm*
 
 #
 # XXX: this assumes a SunOS/linux-style ld.so (won't work on macosx)
