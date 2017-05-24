@@ -32,3 +32,24 @@ static inline void msg_abort(const char* msg)
 
     abort();
 }
+
+static void print_hg_addr(hg_class_t *hgcl, char *str, hg_addr_t hgaddr)
+{
+    char *addr_str = NULL;
+    hg_size_t addr_size = 0;
+    hg_return_t hret;
+
+    hret = HG_Addr_to_string(hgcl, NULL, &addr_size, hgaddr);
+    if (hgaddr == NULL)
+        msg_abort("HG_Addr_to_string failed");
+
+    addr_str = (char *)malloc(addr_size);
+    if (addr_str == NULL)
+        msg_abort("malloc failed");
+
+    hret = HG_Addr_to_string(hgcl, addr_str, &addr_size, hgaddr);
+    if (hret != HG_SUCCESS)
+        msg_abort("HG_Addr_to_string failed");
+
+    fprintf(stdout, "Mercury address: %s => %s\n", str, addr_str);
+}

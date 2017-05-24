@@ -146,11 +146,83 @@ static void prepare_addr(int minport, int maxport, char *subnet, char *proto,
         fprintf(stdout, "Info: Using address %s\n", uri);
 }
 
+typedef struct hg_lookup_out {
+    hg_return_t hret;
+    hg_addr_t addr;
+    int *cb_count;
+} hg_lookup_out_t;
+
+static hg_return_t hg_lookup_cb(const struct hg_cb_info *info)
+{
+    hg_lookup_out_t *out = (hg_lookup_out_t *)info->arg;
+    *out->cb_count += 1;
+    out->hret = info->ret;
+    if (out->hret != HG_SUCCESS)
+        out->addr = HG_ADDR_NULL;
+    else
+        out->addr = info->info.lookup.addr;
+    return HG_SUCCESS;
+}
+
+static hg_return_t hg_lookup(nexus_ctx_t *nctx, hg_context_t *hgctx,
+                             char *hgaddr, hg_addr_t *addr)
+{
+    hg_lookup_out_t *out = NULL;
+    hg_class_t *hgcl;
+    hg_return_t hret;
+    int cb_count = 1;
+
+    /* Init addr metadata */
+    out = (hg_lookup_out_t *)malloc(sizeof(*out));
+    if (out == NULL)
+        return HG_NOMEM_ERROR;
+
+    /* rank is set, perform lookup */
+    out->cb_count = &cb_count;
+    hret = HG_Addr_lookup(hgctx, &hg_lookup_cb, out, hgaddr, HG_OP_ID_IGNORE);
+    if (hret != HG_SUCCESS)
+        return hret;
+
+    /* Lookup posted, enter the progress loop until finished */
+    do {
+        unsigned int count = 0;
+        do {
+            hret = HG_Trigger(hgctx, 0, 1, &count);
+        } while (hret == HG_SUCCESS && count);
+
+        if (hret != HG_SUCCESS && hret != HG_TIMEOUT)
+            return hret;
+
+        hret = HG_Progress(hgctx, 100);
+    } while (hret == HG_SUCCESS);
+
+    if (hret != HG_SUCCESS && hret != HG_TIMEOUT)
+        return hret;
+
+    if (out->hret != HG_SUCCESS)
+        return out->hret;
+    else
+        *addr = out->addr;
+
+    free(out);
+    return HG_SUCCESS;
+}
+
+typedef struct {
+    int pid;
+    int hgid;
+    int grank;
+    int lrank;
+} ldata_t;
+
 static void discover_local_info(nexus_ctx_t *nctx)
 {
     int ret;
     MPI_Comm localcomm;
     char hgaddr[128];
+    ldata_t ldat;
+    ldata_t *hginfo;
+    hg_return_t hret;
 
 #if MPI_VERSION >= 3
     ret = MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0,
@@ -165,11 +237,9 @@ static void discover_local_info(nexus_ctx_t *nctx)
     MPI_Comm_rank(localcomm, &(nctx->localrank));
     MPI_Comm_size(localcomm, &(nctx->localsize));
 
-    /* Initialize local Mercury listening endpoint */
-    if (nctx->localrank)
-        goto xchginfo;
-
-    sprintf(hgaddr, "na+sm://%d/0", getpid());
+    /* Initialize local Mercury listening endpoints */
+    snprintf(hgaddr, sizeof(hgaddr), "na+sm://%d/0", getpid());
+    fprintf(stderr, "Initializing for %s\n", hgaddr);
 
     nctx->local_hgcl = HG_Init(hgaddr, HG_TRUE);
     if (!nctx->local_hgcl)
@@ -179,7 +249,48 @@ static void discover_local_info(nexus_ctx_t *nctx)
     if (!nctx->local_hgctx)
         msg_abort("HG_Context_create failed for local endpoint");
 
-xchginfo:
+    /* Exchange PID, ID, global rank, local rank among local ranks */
+    ldat.pid = getpid();
+    ldat.hgid = 0;
+    ldat.grank = nctx->myrank;
+    ldat.lrank = nctx->localrank;
+
+    hginfo = (ldata_t *)malloc(sizeof(ldata_t) * (nctx->localsize));
+    if (!hginfo)
+        msg_abort("malloc failed");
+
+    MPI_Allgather(&ldat, sizeof(ldata_t), MPI_BYTE, hginfo,
+                  sizeof(ldata_t), MPI_BYTE, localcomm);
+
+    for (int i = 0; i < nctx->localsize; i++) {
+        hg_addr_t *localaddr;
+
+#ifdef NEXUS_DEBUG
+        fprintf(stdout, "Idx %d: pid %d, id %d, grank %d, lrank %d\n",
+                i, hginfo[i].pid, hginfo[i].hgid, hginfo[i].grank,
+                hginfo[i].lrank);
+#endif
+
+        localaddr = (hg_addr_t *)malloc(sizeof(hg_addr_t));
+        if (!localaddr)
+            msg_abort("malloc failed");
+
+        snprintf(hgaddr, sizeof(hgaddr), "na+sm://%d/%d",
+                 hginfo[i].pid, hginfo[i].hgid);
+
+        hret = hg_lookup(nctx, nctx->local_hgctx, hgaddr, localaddr);
+        if (hret != HG_SUCCESS)
+            msg_abort("hg_lookup failed");
+
+        /* Add to local map */
+        nctx->lcladdrs[hginfo[i].grank] = localaddr;
+
+#ifdef NEXUS_DEBUG
+        print_hg_addr(nctx->local_hgcl, hgaddr, *localaddr);
+#endif
+    }
+
+    free(hginfo);
     return;
 }
 
@@ -222,14 +333,22 @@ int nexus_bootstrap(nexus_ctx_t *nctx, int minport, int maxport,
 
 int nexus_destroy(nexus_ctx_t *nctx)
 {
-    /* Destroy Mercury local and remote endpoints */
-    HG_Context_destroy(nctx->remote_hgctx);
-    HG_Finalize(nctx->remote_hgcl);
+    map<int, hg_addr_t *>::iterator it;
 
-    if (!nctx->localrank) {
-        HG_Context_destroy(nctx->local_hgctx);
-        HG_Finalize(nctx->local_hgcl);
+    /* Free Mercury addresses */
+    for (it = nctx->lcladdrs.begin(); it != nctx->lcladdrs.end(); ++it) {
+        if (*(it->second) != HG_ADDR_NULL)
+            HG_Addr_free(nctx->local_hgcl, *(it->second));
+        if (it->second)
+            free(it->second);
     }
 
+    /* Destroy Mercury local endpoints */
+    HG_Context_destroy(nctx->local_hgctx);
+    HG_Finalize(nctx->local_hgcl);
+
+    /* Destroy Mercury remote endpoints */
+    HG_Context_destroy(nctx->remote_hgctx);
+    HG_Finalize(nctx->remote_hgcl);
     return 0;
 }
