@@ -178,18 +178,23 @@ static void prepare_addr(int minport, int maxport, char *subnet, char *proto,
 typedef struct hg_lookup_out {
     hg_return_t hret;
     hg_addr_t addr;
-    int *cb_count;
+    pthread_mutex_t cb_mutex;
+    pthread_cond_t cb_cv;
 } hg_lookup_out_t;
 
 static hg_return_t hg_lookup_cb(const struct hg_cb_info *info)
 {
     hg_lookup_out_t *out = (hg_lookup_out_t *)info->arg;
-    *out->cb_count += 1;
     out->hret = info->ret;
     if (out->hret != HG_SUCCESS)
         out->addr = HG_ADDR_NULL;
     else
         out->addr = info->info.lookup.addr;
+
+    pthread_mutex_lock(&out->cb_mutex);
+    pthread_cond_signal(&out->cb_cv);
+    pthread_mutex_unlock(&out->cb_mutex);
+
     return HG_SUCCESS;
 }
 
@@ -198,7 +203,6 @@ static hg_return_t hg_lookup(nexus_ctx_t *nctx, hg_context_t *hgctx,
 {
     hg_lookup_out_t *out = NULL;
     hg_return_t hret;
-    int cb_count = 0;
 
     /* Init addr metadata */
     out = (hg_lookup_out_t *)malloc(sizeof(*out));
@@ -206,23 +210,16 @@ static hg_return_t hg_lookup(nexus_ctx_t *nctx, hg_context_t *hgctx,
         return HG_NOMEM_ERROR;
 
     /* rank is set, perform lookup */
-    out->cb_count = &cb_count;
+    pthread_mutex_init(&out->cb_mutex, NULL);
+    pthread_cond_init(&out->cb_cv, NULL);
     hret = HG_Addr_lookup(hgctx, &hg_lookup_cb, out, hgaddr, HG_OP_ID_IGNORE);
     if (hret != HG_SUCCESS)
         goto err;
 
-    /* Lookup posted, enter the progress loop until finished */
-    do {
-        unsigned int count = 0;
-        do {
-            hret = HG_Trigger(hgctx, 0, 1, &count);
-        } while (hret == HG_SUCCESS && count > 0);
-
-        if (hret != HG_SUCCESS && hret != HG_TIMEOUT)
-            goto err;
-
-        hret = HG_Progress(hgctx, 100);
-    } while (!cb_count && (hret == HG_SUCCESS || hret == HG_TIMEOUT));
+    /* Lookup posted, wait until finished */
+    pthread_mutex_lock(&out->cb_mutex);
+    pthread_cond_wait(&out->cb_cv, &out->cb_mutex);
+    pthread_mutex_unlock(&out->cb_mutex);
 
     if (hret != HG_SUCCESS && hret != HG_TIMEOUT)
         goto err;
