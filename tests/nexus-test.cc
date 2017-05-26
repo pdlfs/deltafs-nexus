@@ -167,7 +167,7 @@ int main(int argc, char **argv)
     }
 
     if (nexus_bootstrap(&(tctx.nctx), tctx.minport, tctx.maxport,
-                        tctx.subnet, tctx.proto)) {
+                        tctx.subnet, tctx.proto, 1)) {
         fprintf(stderr, "Error: nexus_bootstrap failed\n");
         goto error;
     }

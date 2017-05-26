@@ -257,6 +257,9 @@ static void discover_local_info(nexus_ctx_t *nctx)
     MPI_Comm_rank(localcomm, &(nctx->localrank));
     MPI_Comm_size(localcomm, &(nctx->localsize));
 
+    if (nctx->repnum > nctx->localsize)
+        msg_abort("Reps are more than cores per nodes");
+
     /* Initialize local Mercury listening endpoints */
     snprintf(hgaddr, sizeof(hgaddr), "na+sm://%d/0", getpid());
     fprintf(stderr, "Initializing for %s\n", hgaddr);
@@ -298,7 +301,7 @@ static void discover_local_info(nexus_ctx_t *nctx)
         hg_addr_t localaddr;
 
         /* Assign next core as my representative */
-        if (hginfo[i].lrank == (nctx->localrank + 1) % nctx->localsize) {
+        if (hginfo[i].lrank == (nctx->localrank + 1) % nctx->repnum) {
             nctx->reprank = hginfo[i].grank;
 #ifdef NEXUS_DEBUG
             fprintf(stdout, "Representative for %d => %d\n",
@@ -358,7 +361,7 @@ static void discover_remote_info(nexus_ctx_t *nctx, char *hgaddr)
 }
 
 int nexus_bootstrap(nexus_ctx_t *nctx, int minport, int maxport,
-                    char *subnet, char *proto)
+                    char *subnet, char *proto, int repnum)
 {
     char hgaddr[128];
 
@@ -366,6 +369,7 @@ int nexus_bootstrap(nexus_ctx_t *nctx, int minport, int maxport,
     MPI_Comm_rank(MPI_COMM_WORLD, &(nctx->myrank));
     MPI_Comm_size(MPI_COMM_WORLD, &(nctx->ranksize));
 
+    nctx->repnum = repnum;
     discover_local_info(nctx);
 
     prepare_addr(minport, maxport, subnet, proto, hgaddr);

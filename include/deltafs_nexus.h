@@ -24,6 +24,7 @@ struct nexus_ctx
 
     int ranksize;                   /* total number of ranks */
     int localsize;                  /* number of local ranks (in my node) */
+    int repnum;                     /* number of reps per node */
 
     int *replist;                   /* array of rank -> representative */
     map<int, hg_addr_t> lcladdrs;   /* map of local rank -> Hg address */
@@ -45,7 +46,8 @@ int nexus_bootstrap(nexus_ctx_t *nctx,
                     int minport,
                     int maxport,
                     char *subnet,
-                    char *proto);
+                    char *proto,
+                    int repnum);
 
 /*
  * Destroys the Nexus library freeing all allocated resources
