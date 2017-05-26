@@ -18,22 +18,22 @@ using namespace std;
  */
 struct nexus_ctx
 {
-    int myrank;                       /* my MPI rank */
-    int localrank;                    /* my local MPI rank */
-    int reprank;                      /* my representative's rank */
+    int myrank;                     /* my MPI rank */
+    int localrank;                  /* my local MPI rank */
+    int reprank;                    /* my representative's rank */
 
-    int ranksize;                     /* total number of ranks */
-    int localsize;                    /* number of local ranks (in my node) */
+    int ranksize;                   /* total number of ranks */
+    int localsize;                  /* number of local ranks (in my node) */
 
-    int *replist;                     /* array of rank -> representative */
-    map<int, hg_addr_t *> lcladdrs;   /* map of local rank -> Hg address */
-    map<int, hg_addr_t *> rmtaddrs;   /* map of remote rank -> Hg address */
+    int *replist;                   /* array of rank -> representative */
+    map<int, hg_addr_t> lcladdrs;   /* map of local rank -> Hg address */
+    map<int, hg_addr_t> rmtaddrs;   /* map of remote rank -> Hg address */
 
     /* Mercury endpoint state */
-    hg_class_t *remote_hgcl;          /* Remote Hg class */
-    hg_context_t *remote_hgctx;       /* Remote Hg context */
-    hg_class_t *local_hgcl;           /* Local Hg class */
-    hg_context_t *local_hgctx;        /* Local Hg context */
+    hg_class_t *remote_hgcl;        /* Remote Hg class */
+    hg_context_t *remote_hgctx;     /* Remote Hg context */
+    hg_class_t *local_hgcl;         /* Local Hg class */
+    hg_context_t *local_hgctx;      /* Local Hg context */
 };
 
 typedef struct nexus_ctx nexus_ctx_t;

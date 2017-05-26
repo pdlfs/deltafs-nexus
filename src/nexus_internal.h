@@ -17,7 +17,7 @@
 
 #include "deltafs_nexus.h"
 
-#define NEXUS_DEBUG
+//#define NEXUS_DEBUG
 
 /*
  * msg_abort: abort with a message
