@@ -173,6 +173,8 @@ static void prepare_addr(int minport, int maxport, char *subnet, char *proto,
     sprintf(uri, "%s://%s:%d", proto, ip, port);
     if (rank == 0)
         fprintf(stdout, "Info: Using address %s\n", uri);
+
+    MPI_Comm_free(&localcomm);
 }
 
 typedef struct hg_lookup_out {
@@ -346,6 +348,7 @@ static void discover_local_info(nexus_ctx_t *nctx)
     bgarg->bgdone = 1;
     pthread_join(bgthread, NULL);
 
+    MPI_Comm_free(&localcomm);
     return;
 }
 
@@ -399,6 +402,7 @@ int nexus_destroy(nexus_ctx_t *nctx)
 
     /* Sync before tearing down local endpoints */
     MPI_Barrier(localcomm);
+    MPI_Comm_free(&localcomm);
 
     /* Destroy Mercury local endpoints */
     HG_Context_destroy(nctx->local_hgctx);
