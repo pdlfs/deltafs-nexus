@@ -22,6 +22,7 @@ fi
 #
 rm -Rf /tmp/na_sm
 rm -Rf /dev/shm/na_sm*
+sleep 1
 
 #
 # XXX: this assumes a SunOS/linux-style ld.so (won't work on macosx)
