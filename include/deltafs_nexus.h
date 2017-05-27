@@ -66,7 +66,7 @@ bool nexus_is_local(nexus_ctx_t *nctx, int rank);
 /*
  * Returns true if the rank is a local representative
  */
-bool nexus_is_rep(nexus_ctx_t *nctx, int rank);
+bool nexus_am_rep(nexus_ctx_t *nctx);
 
 /*
  * Returns the representative MPI rank (in COMM_WORLD) in the node
@@ -77,4 +77,4 @@ int nexus_get_rep(nexus_ctx_t *nctx, int rank);
 /*
  * Returns the Mercury address of the provided rank
  */
-int nexus_get_addr(nexus_ctx_t *nctx, int rank, hg_addr_t *addr);
+hg_addr_t nexus_get_addr(nexus_ctx_t *nctx, int rank);

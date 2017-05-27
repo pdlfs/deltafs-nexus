@@ -32,20 +32,46 @@
 
 bool nexus_is_local(nexus_ctx_t *nctx, int rank)
 {
-    return 0;
+    map<int,hg_addr_t>::iterator it;
+
+    it = nctx->lcladdrs.find(rank);
+    if (it != nctx->lcladdrs.end())
+        return true;
+
+    return false;
 }
 
-bool nexus_is_rep(nexus_ctx_t *nctx, int rank)
+bool nexus_am_rep(nexus_ctx_t *nctx)
 {
-    return 0;
+    if (nctx->myrank == nctx->reprank)
+        return true;
+
+    return false;
 }
 
 int nexus_get_rep(nexus_ctx_t *nctx, int rank)
 {
-    return -1;
+    if (!nexus_am_rep(nctx))
+        return -1;
+
+    if (rank < 0 || rank > nctx->ranksize)
+        return -1;
+
+    return nctx->replist[rank];
 }
 
-int nexus_get_addr(nexus_ctx_t *nctx, int rank, hg_addr_t *addr)
+hg_addr_t nexus_get_addr(nexus_ctx_t *nctx, int rank)
 {
-    return 1;
+    map<int,hg_addr_t>::iterator it;
+
+    /* Prefer local addresses when possible */
+    it = nctx->lcladdrs.find(rank);
+    if (it != nctx->lcladdrs.end())
+        return it->second;
+
+    it = nctx->rmtaddrs.find(rank);
+    if (it != nctx->rmtaddrs.end())
+        return it->second;
+
+    return HG_ADDR_NULL;
 }
