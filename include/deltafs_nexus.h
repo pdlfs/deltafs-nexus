@@ -30,6 +30,10 @@ struct nexus_ctx
     map<int, hg_addr_t> lcladdrs;   /* map of local rank -> Hg address */
     map<int, hg_addr_t> rmtaddrs;   /* map of remote rank -> Hg address */
 
+    /* MPI communicators */
+    MPI_Comm localcomm;
+    MPI_Comm repcomm;
+
     /* Mercury endpoint state */
     hg_class_t *remote_hgcl;        /* Remote Hg class */
     hg_context_t *remote_hgctx;     /* Remote Hg context */

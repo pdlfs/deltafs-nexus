@@ -54,20 +54,32 @@ static void print_hg_addr(hg_class_t *hgcl, char *str, hg_addr_t hgaddr)
     fprintf(stdout, "Mercury address: %s => %s\n", str, addr_str);
 }
 
-static MPI_Comm get_local_comm(void)
+static void init_local_comm(nexus_ctx_t *nctx)
 {
     int ret;
-    MPI_Comm localcomm;
 
 #if MPI_VERSION >= 3
     ret = MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0,
-                              MPI_INFO_NULL, &localcomm);
+                              MPI_INFO_NULL, &nctx->localcomm);
     if (ret != MPI_SUCCESS)
         msg_abort("MPI_Comm_split_type failed");
 #else
     /* XXX: Need to find a way to deal with MPI_VERSION < 3 */
     msg_abort("Nexus needs MPI version 3 or higher");
 #endif
+}
 
-    return localcomm;
+static void init_rep_comm(nexus_ctx_t *nctx)
+{
+    int ret;
+
+#if MPI_VERSION >= 3
+    ret = MPI_Comm_split(MPI_COMM_WORLD, (nctx->myrank == nctx->reprank),
+                         nctx->myrank, &nctx->repcomm);
+    if (ret != MPI_SUCCESS)
+        msg_abort("MPI_Comm_split_type failed");
+#else
+    /* XXX: Need to find a way to deal with MPI_VERSION < 3 */
+    msg_abort("Nexus needs MPI version 3 or higher");
+#endif
 }

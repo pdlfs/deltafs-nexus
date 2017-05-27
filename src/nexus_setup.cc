@@ -77,13 +77,12 @@ static void *nexus_bgthread(void *arg)
  * Put together the remote Mercury endpoint address from bootstrap parameters.
  * Writes the server URI into *uri on success. Aborts on error.
  */
-static void prepare_addr(int minport, int maxport, char *subnet, char *proto,
-                         char *uri)
+static void prepare_addr(nexus_ctx_t *nctx, int minport, int maxport,
+                         char *subnet, char *proto, char *uri)
 {
     struct ifaddrs *ifaddr, *cur;
     int family, ret, rank, size, port;
     char ip[16];
-    MPI_Comm localcomm = get_local_comm();
 
     /* Query local socket layer to get our IP addr */
     if (getifaddrs(&ifaddr) == -1)
@@ -117,8 +116,8 @@ static void prepare_addr(int minport, int maxport, char *subnet, char *proto,
     if (maxport > 65535)
         msg_abort("bad max port");
 
-    MPI_Comm_rank(localcomm, &rank);
-    MPI_Comm_size(localcomm, &size);
+    MPI_Comm_rank(nctx->localcomm, &rank);
+    MPI_Comm_size(nctx->localcomm, &size);
     port = minport + (rank % (1 + maxport - minport));
     for (; port <= maxport; port += size) {
         int so, n = 1;
@@ -173,8 +172,6 @@ static void prepare_addr(int minport, int maxport, char *subnet, char *proto,
     sprintf(uri, "%s://%s:%d", proto, ip, port);
     if (rank == 0)
         fprintf(stdout, "Info: Using address %s\n", uri);
-
-    MPI_Comm_free(&localcomm);
 }
 
 typedef struct hg_lookup_out {
@@ -248,7 +245,6 @@ typedef struct {
 static void discover_local_info(nexus_ctx_t *nctx)
 {
     int ret;
-    MPI_Comm localcomm = get_local_comm();
     char hgaddr[128];
     ldata_t ldat;
     ldata_t *hginfo;
@@ -256,8 +252,8 @@ static void discover_local_info(nexus_ctx_t *nctx)
     pthread_t bgthread; /* network background thread */
     bgthread_dat_t *bgarg;
 
-    MPI_Comm_rank(localcomm, &(nctx->localrank));
-    MPI_Comm_size(localcomm, &(nctx->localsize));
+    MPI_Comm_rank(nctx->localcomm, &(nctx->localrank));
+    MPI_Comm_size(nctx->localcomm, &(nctx->localsize));
 
     if (nctx->repnum > nctx->localsize)
         msg_abort("Reps are more than cores per nodes");
@@ -297,7 +293,7 @@ static void discover_local_info(nexus_ctx_t *nctx)
         msg_abort("malloc failed");
 
     MPI_Allgather(&ldat, sizeof(ldata_t), MPI_BYTE, hginfo,
-                  sizeof(ldata_t), MPI_BYTE, localcomm);
+                  sizeof(ldata_t), MPI_BYTE, nctx->localcomm);
 
     for (int i = 0; i < nctx->localsize; i++) {
         int eff_i = (nctx->localrank + i) % nctx->localsize;
@@ -314,7 +310,7 @@ static void discover_local_info(nexus_ctx_t *nctx)
 
 #ifdef NEXUS_DEBUG
         fprintf(stdout, "[%d] Idx %d: pid %d, id %d, grank %d, lrank %d\n",
-                nctx->localrank, eff_i, hginfo[eff_i].pid, hginfo[eff_i].hgid,
+                nctx->myrank, eff_i, hginfo[eff_i].pid, hginfo[eff_i].hgid,
                 hginfo[eff_i].grank, hginfo[eff_i].lrank);
 #endif
 
@@ -343,14 +339,13 @@ static void discover_local_info(nexus_ctx_t *nctx)
     free(hginfo);
 
     /* Sync before terminating background threads */
-    MPI_Barrier(localcomm);
+    MPI_Barrier(nctx->localcomm);
 
     /* Terminate network thread */
     bgarg->bgdone = 1;
     pthread_join(bgthread, NULL);
 
-    MPI_Comm_free(&localcomm);
-    return;
+    free(bgarg);
 }
 
 static void discover_remote_info(nexus_ctx_t *nctx, char *hgaddr)
@@ -374,10 +369,17 @@ int nexus_bootstrap(nexus_ctx_t *nctx, int minport, int maxport,
     MPI_Comm_size(MPI_COMM_WORLD, &(nctx->ranksize));
 
     nctx->repnum = repnum;
+    init_local_comm(nctx);
     discover_local_info(nctx);
 
-    prepare_addr(minport, maxport, subnet, proto, hgaddr);
+    fprintf(stdout, "[%d] Done local info discovery\n", nctx->myrank);
+
+    prepare_addr(nctx, minport, maxport, subnet, proto, hgaddr);
+    init_rep_comm(nctx);
     discover_remote_info(nctx, hgaddr);
+
+    fprintf(stdout, "[%d] Done remote info discovery\n", nctx->myrank);
+    fflush(stdout);
 
 #ifdef NEXUS_DEBUG
     fprintf(stdout, "[%d] myrank = %d, localrank = %d, reprank = %d, "
@@ -390,7 +392,6 @@ int nexus_bootstrap(nexus_ctx_t *nctx, int minport, int maxport,
 
 int nexus_destroy(nexus_ctx_t *nctx)
 {
-    MPI_Comm localcomm = get_local_comm();
     map<int, hg_addr_t>::iterator it;
 
     /* Free local Mercury addresses */
@@ -399,12 +400,21 @@ int nexus_destroy(nexus_ctx_t *nctx)
             HG_Addr_free(nctx->local_hgcl, it->second);
 
     /* Sync before tearing down local endpoints */
-    MPI_Barrier(localcomm);
-    MPI_Comm_free(&localcomm);
+    MPI_Barrier(nctx->localcomm);
+    MPI_Comm_free(&nctx->localcomm);
 
     /* Destroy Mercury local endpoints */
     HG_Context_destroy(nctx->local_hgctx);
     HG_Finalize(nctx->local_hgcl);
+
+    fprintf(stdout, "[%d] Done local info cleanup\n", nctx->myrank);
+
+    /* If we're not a rep we're done */
+    if (nctx->localrank >= nctx->repnum) {
+        fprintf(stdout, "[%d] Done remote info cleanup\n", nctx->myrank);
+        MPI_Comm_free(&nctx->repcomm);
+        return 0;
+    }
 
     /* Free remote Mercury addresses */
     for (it = nctx->rmtaddrs.begin(); it != nctx->rmtaddrs.end(); it++)
@@ -412,12 +422,13 @@ int nexus_destroy(nexus_ctx_t *nctx)
             HG_Addr_free(nctx->remote_hgcl, it->second);
 
     /* Sync before tearing down remote endpoints */
-    MPI_Barrier(MPI_COMM_WORLD);
+    MPI_Barrier(nctx->repcomm);
 
     /* Destroy Mercury remote endpoints */
     HG_Context_destroy(nctx->remote_hgctx);
     HG_Finalize(nctx->remote_hgcl);
 
     free(nctx->replist);
+    MPI_Comm_free(&nctx->repcomm);
     return 0;
 }
