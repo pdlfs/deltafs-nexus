@@ -211,17 +211,14 @@ static hg_return_t hg_lookup(nexus_ctx_t *nctx, hg_context_t *hgctx,
     /* rank is set, perform lookup */
     pthread_mutex_init(&out->cb_mutex, NULL);
     pthread_cond_init(&out->cb_cv, NULL);
+    pthread_mutex_lock(&out->cb_mutex);
     hret = HG_Addr_lookup(hgctx, &hg_lookup_cb, out, hgaddr, HG_OP_ID_IGNORE);
     if (hret != HG_SUCCESS)
         goto err;
 
     /* Lookup posted, wait until finished */
-    pthread_mutex_lock(&out->cb_mutex);
     pthread_cond_wait(&out->cb_cv, &out->cb_mutex);
     pthread_mutex_unlock(&out->cb_mutex);
-
-    if (hret != HG_SUCCESS && hret != HG_TIMEOUT)
-        goto err;
 
     if (out->hret != HG_SUCCESS) {
         hret = out->hret;
@@ -231,6 +228,8 @@ static hg_return_t hg_lookup(nexus_ctx_t *nctx, hg_context_t *hgctx,
     }
 
 err:
+    pthread_cond_destroy(&out->cb_cv);
+    pthread_mutex_destroy(&out->cb_mutex);
     free(out);
     return hret;
 }
@@ -300,7 +299,7 @@ static void discover_local_info(nexus_ctx_t *nctx)
         hg_addr_t localaddr;
 
         /* Find my local representative core */
-        if (hginfo[eff_i].lrank == (nctx->localrank + 1) % nctx->repnum) {
+        if (hginfo[eff_i].lrank == (nctx->localrank % nctx->repnum)) {
             nctx->reprank = hginfo[eff_i].grank;
 #ifdef NEXUS_DEBUG
             fprintf(stdout, "Representative for %d => %d\n",
