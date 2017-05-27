@@ -347,8 +347,35 @@ static void discover_local_info(nexus_ctx_t *nctx)
     free(bgarg);
 }
 
+typedef struct {
+    char ip[16];
+    int port;
+    int grank;
+} rdata_t;
+
 static void discover_remote_info(nexus_ctx_t *nctx, char *hgaddr)
 {
+    int ret;
+    pthread_t bgthread; /* network background thread */
+    bgthread_dat_t *bgarg;
+    rdata_t rdat;
+    rdata_t *hginfo;
+
+    /* Build rank => rep mapping */
+    nctx->replist = (int *)malloc(sizeof(int) * nctx->ranksize);
+    if (!nctx->replist)
+        msg_abort("malloc failed");
+
+    MPI_Allgather(&nctx->reprank, 1, MPI_INT, nctx->replist,
+                  1, MPI_INT, MPI_COMM_WORLD);
+
+    /* Only representatives gather remote endpoint information */
+    if (nctx->localrank >= nctx->repnum) {
+        free(nctx->replist);
+        return;
+    }
+
+    /* Initialize remote Mercury listening endpoints */
     nctx->remote_hgcl = HG_Init(hgaddr, HG_TRUE);
     if (!nctx->remote_hgcl)
         msg_abort("HG_Init failed for remote endpoint");
@@ -356,6 +383,34 @@ static void discover_remote_info(nexus_ctx_t *nctx, char *hgaddr)
     nctx->remote_hgctx = HG_Context_create(nctx->remote_hgcl);
     if (!nctx->remote_hgctx)
         msg_abort("HG_Context_create failed for remote endpoint");
+
+    /* Start the network thread */
+    bgarg = (bgthread_dat_t *)malloc(sizeof(*bgarg));
+    if (!bgarg)
+        msg_abort("malloc failed");
+
+    bgarg->hgctx = nctx->remote_hgctx;
+    bgarg->bgdone = 0;
+
+    ret = pthread_create(&bgthread, NULL, nexus_bgthread, (void*)bgarg);
+    if (ret != 0)
+        msg_abort("pthread_create failed");
+
+    /* XXX */
+    if (!nctx->myrank) {
+        for (int i = 0; i < nctx->ranksize; i++)
+            fprintf(stdout, "[%d] Rank %d => Rep %d\n",
+                    nctx->myrank, i, nctx->replist[i]);
+    }
+
+    /* Sync before terminating background threads */
+    MPI_Barrier(nctx->repcomm);
+
+    /* Terminate network thread */
+    bgarg->bgdone = 1;
+    pthread_join(bgthread, NULL);
+
+    free(bgarg);
 }
 
 int nexus_bootstrap(nexus_ctx_t *nctx, int minport, int maxport,
