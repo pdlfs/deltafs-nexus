@@ -300,11 +300,12 @@ static void discover_local_info(nexus_ctx_t *nctx)
                   sizeof(ldata_t), MPI_BYTE, localcomm);
 
     for (int i = 0; i < nctx->localsize; i++) {
+        int eff_i = (nctx->localrank + i) % nctx->localsize;
         hg_addr_t localaddr;
 
-        /* Assign next core as my representative */
-        if (hginfo[i].lrank == (nctx->localrank + 1) % nctx->repnum) {
-            nctx->reprank = hginfo[i].grank;
+        /* Find my local representative core */
+        if (hginfo[eff_i].lrank == (nctx->localrank + 1) % nctx->repnum) {
+            nctx->reprank = hginfo[eff_i].grank;
 #ifdef NEXUS_DEBUG
             fprintf(stdout, "Representative for %d => %d\n",
                             nctx->localrank, nctx->reprank);
@@ -312,15 +313,15 @@ static void discover_local_info(nexus_ctx_t *nctx)
         }
 
 #ifdef NEXUS_DEBUG
-        fprintf(stdout, "Idx %d: pid %d, id %d, grank %d, lrank %d\n",
-                i, hginfo[i].pid, hginfo[i].hgid, hginfo[i].grank,
-                hginfo[i].lrank);
+        fprintf(stdout, "[%d] Idx %d: pid %d, id %d, grank %d, lrank %d\n",
+                nctx->localrank, eff_i, hginfo[eff_i].pid, hginfo[eff_i].hgid,
+                hginfo[eff_i].grank, hginfo[eff_i].lrank);
 #endif
 
         snprintf(hgaddr, sizeof(hgaddr), "na+sm://%d/%d",
-                 hginfo[i].pid, hginfo[i].hgid);
+                 hginfo[eff_i].pid, hginfo[eff_i].hgid);
 
-        if (hginfo[i].grank == nctx->myrank) {
+        if (hginfo[eff_i].grank == nctx->myrank) {
             hret = HG_Addr_self(nctx->local_hgcl, &localaddr);
         } else {
             hret = hg_lookup(nctx, nctx->local_hgctx, hgaddr, &localaddr);
@@ -332,16 +333,16 @@ static void discover_local_info(nexus_ctx_t *nctx)
         }
 
         /* Add to local map */
-        nctx->lcladdrs[hginfo[i].grank] = localaddr;
+        nctx->lcladdrs[hginfo[eff_i].grank] = localaddr;
 
 #ifdef NEXUS_DEBUG
-        print_hg_addr(nctx->local_hgcl, hgaddr, *localaddr);
+        print_hg_addr(nctx->local_hgcl, hgaddr, localaddr);
 #endif
     }
 
     free(hginfo);
 
-    /* Sync before doing any lookups */
+    /* Sync before terminating background threads */
     MPI_Barrier(localcomm);
 
     /* Terminate network thread */
@@ -379,12 +380,9 @@ int nexus_bootstrap(nexus_ctx_t *nctx, int minport, int maxport,
     discover_remote_info(nctx, hgaddr);
 
 #ifdef NEXUS_DEBUG
-    fprintf(stdout, "[%d] Nexus bootstrap complete:\n", nctx->myrank);
-    fprintf(stdout, "[%d]\tmyrank = %d\n", nctx->myrank, nctx->myrank);
-    fprintf(stdout, "[%d]\tlocalrank = %d\n", nctx->myrank, nctx->localrank);
-    fprintf(stdout, "[%d]\treprank = %d\n", nctx->myrank, nctx->reprank);
-    fprintf(stdout, "[%d]\tranksize = %d\n", nctx->myrank, nctx->ranksize);
-    fprintf(stdout, "[%d]\tlocalsize = %d\n", nctx->myrank, nctx->localsize);
+    fprintf(stdout, "[%d] myrank = %d, localrank = %d, reprank = %d, "
+            "ranksize = %d, localsize = %d\n", nctx->myrank, nctx->myrank,
+            nctx->localrank, nctx->reprank, nctx->ranksize, nctx->localsize);
 #endif /* NEXUS_DEBUG */
 
     return 0;
@@ -420,5 +418,6 @@ int nexus_destroy(nexus_ctx_t *nctx)
     HG_Context_destroy(nctx->remote_hgctx);
     HG_Finalize(nctx->remote_hgcl);
 
+    free(nctx->replist);
     return 0;
 }
