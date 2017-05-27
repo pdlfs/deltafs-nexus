@@ -60,6 +60,11 @@ int nexus_destroy(nexus_ctx_t *nctx);
 bool nexus_is_local(nexus_ctx_t *nctx, int rank);
 
 /*
+ * Returns true if the rank is a local representative
+ */
+bool nexus_is_rep(nexus_ctx_t *nctx, int rank);
+
+/*
  * Returns the representative MPI rank (in COMM_WORLD) in the node
  * with the provided rank
  */

@@ -35,6 +35,11 @@ bool nexus_is_local(nexus_ctx_t *nctx, int rank)
     return 0;
 }
 
+bool nexus_is_rep(nexus_ctx_t *nctx, int rank)
+{
+    return 0;
+}
+
 int nexus_get_rep(nexus_ctx_t *nctx, int rank)
 {
     return -1;
