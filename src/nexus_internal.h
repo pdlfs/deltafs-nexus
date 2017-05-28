@@ -74,8 +74,8 @@ static void init_rep_comm(nexus_ctx_t *nctx)
     int ret;
 
 #if MPI_VERSION >= 3
-    ret = MPI_Comm_split(MPI_COMM_WORLD, (nctx->myrank == nctx->reprank),
-                         nctx->myrank, &nctx->repcomm);
+    ret = MPI_Comm_split(MPI_COMM_WORLD, (nctx->grank == nctx->lroot),
+                         nctx->grank, &nctx->repcomm);
     if (ret != MPI_SUCCESS)
         msg_abort("MPI_Comm_split_type failed");
 #else
