@@ -172,31 +172,48 @@ int main(int argc, char **argv)
         goto error;
     }
 
-#if 0
     for (int i = 1; i <= tctx.count; i++) {
-        int srcrep = -1, dstrep = -1;
+        int srcrep = -1, dstrep = -1, dest = -1;
         int src = tctx.myrank;
         int dst = rand() % tctx.ranksize; /* not uniform, but ok */
+        hg_addr_t sr_addr, dr_addr, d_addr;
+        nexus_ret_t nret;
 
-        if (nexus_is_local(src))
+        /* Get srcrep */
+        nret = nexus_next_hop(&(tctx.nctx), dst, &srcrep, &sr_addr);
+        if (nret == NX_DONE) {
+            fprintf(stdout, "[r%d,i%d] Route: src (%d) and dst (%d) overlap\n",
+                    src, i, src, dst);
+            continue;
+        } else if (nret == NX_ISLOCAL) {
+            fprintf(stdout, "[r%d,i%d] Route src (%d) and dst (%d) is local\n",
+                    src, i, src, dst);
+            continue;
+        } else if (nret == NX_SRCREP) {
+            /* Get dstrep */
+            tctx.nctx.grank = srcrep; /* Trick Nexus to think we advanced */
+            nret = nexus_next_hop(&(tctx.nctx), dst, &dstrep, &dr_addr);
+
+            /* Don't look for dest because we only have rep addresses at src */
+            if (nret == NX_DESTREP || nret == NX_SUCCESS)
+                goto done;
+            else
+                msg_abort("nexus_next_hop for destrep failed");
+        } else if (nret == NX_DESTREP) {
             goto done;
+        } else if (nret != NX_SUCCESS) {
+            msg_abort("nexus_next_hop for srcrep failed");
+        }
 
-        /* Not local, get reps */
-        srcrep = nexus_get_rep(src);
-        dstrep = nexus_get_rep(dst);
-        if (srcrep == -1 || dstrep == -1)
-            msg_abort("nexus_get_rep failed");
-
+#if 0
         print_hg_addr(tctx.hgcl, srcrep, "srcrep");
-        print_hg_addr(tctx.hgcl, dstrep, "dstrep");
+#endif
 done:
-        print_hg_addr(tctx.hgcl, src, "src");
-
+        tctx.nctx.grank = src;
         fprintf(stdout, "[r%d,i%d] Route: src=%d -> src_rep=%d"
                         " -> dst_rep=%d -> dst=%d\n",
                 src, i, src, srcrep, dstrep, dst);
     }
-#endif
 
     if (nexus_destroy(&(tctx.nctx))) {
         fprintf(stderr, "Error: nexus_destroy failed\n");

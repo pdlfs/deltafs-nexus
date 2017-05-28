@@ -47,6 +47,9 @@ typedef enum {
     NX_SUCCESS = 0, /* operation succeeded */
     NX_ERROR,       /* operation resulted in error */
     NX_NOTFOUND,    /* address not found */
+    NX_ISLOCAL,     /* dest is local */
+    NX_SRCREP,      /* dest is srcrep */
+    NX_DESTREP,     /* dest is dstrep */
     NX_INVAL,       /* invalid parameter */
     NX_DONE,        /* already at destination */
 } nexus_ret_t;
@@ -62,14 +65,8 @@ nexus_ret_t nexus_bootstrap(nexus_ctx_t *nctx, int minport, int maxport,
  */
 nexus_ret_t nexus_destroy(nexus_ctx_t *nctx);
 
-#if 0
-/*
- * Returns true if the rank is local to the caller
- */
-bool nexus_is_local(nexus_ctx_t *nctx, int rank);
-#endif
-
 /*
  * Returns next Mercury address in route to dest or error
  */
-nexus_ret_t nexus_next_hop(nexus_ctx_t *nctx, int dest, hg_addr_t *addr);
+nexus_ret_t nexus_next_hop(nexus_ctx_t *nctx, int dest,
+                           int *rank, hg_addr_t *addr);

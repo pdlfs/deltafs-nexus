@@ -30,8 +30,7 @@
 
 #include "nexus_internal.h"
 
-#if 0
-bool nexus_is_local(nexus_ctx_t *nctx, int rank)
+static bool nexus_is_local(nexus_ctx_t *nctx, int rank)
 {
     map<int,hg_addr_t>::iterator it;
 
@@ -41,7 +40,6 @@ bool nexus_is_local(nexus_ctx_t *nctx, int rank)
 
     return false;
 }
-#endif
 
 static hg_addr_t nexus_get_addr(nexus_ctx_t *nctx, int rank)
 {
@@ -59,7 +57,8 @@ static hg_addr_t nexus_get_addr(nexus_ctx_t *nctx, int rank)
     return HG_ADDR_NULL;
 }
 
-nexus_ret_t nexus_next_hop(nexus_ctx_t *nctx, int dest, hg_addr_t *addr)
+nexus_ret_t nexus_next_hop(nexus_ctx_t *nctx, int dest,
+                           int *rank, hg_addr_t *addr)
 {
     int srcrep, destrep;
     map<int,hg_addr_t>::iterator it;
@@ -67,6 +66,16 @@ nexus_ret_t nexus_next_hop(nexus_ctx_t *nctx, int dest, hg_addr_t *addr)
     /* If we are the dest, stop here */
     if (nctx->grank == dest)
         return NX_DONE;
+
+    /* If dest is local, return its address */
+    if (nexus_is_local(nctx, dest)) {
+        *addr = nexus_get_addr(nctx, dest);
+
+        if (rank)
+            *rank = dest;
+
+        return NX_ISLOCAL;
+    }
 
     /* Find src and dest representatives */
     srcrep = nctx->localranks[(dest % nctx->lsize)];
@@ -79,7 +88,11 @@ nexus_ret_t nexus_next_hop(nexus_ctx_t *nctx, int dest, hg_addr_t *addr)
         *addr = nexus_get_addr(nctx, srcrep);
         if (*addr == HG_ADDR_NULL)
             return NX_NOTFOUND;
-        return NX_SUCCESS;
+
+        if (rank)
+            *rank = srcrep;
+
+        return NX_SRCREP;
     }
 
     /* If we are the srcrep, find destrep address and return it */
@@ -87,6 +100,22 @@ nexus_ret_t nexus_next_hop(nexus_ctx_t *nctx, int dest, hg_addr_t *addr)
         *addr = nexus_get_addr(nctx, destrep);
         if (*addr == HG_ADDR_NULL)
             return NX_NOTFOUND;
+
+        if (rank)
+            *rank = destrep;
+
+        return NX_DESTREP;
+    }
+
+    /* If we are the destrep, find the dest address */
+    if (nctx->grank == destrep) {
+        *addr = nexus_get_addr(nctx, dest);
+        if (*addr == HG_ADDR_NULL)
+            return NX_NOTFOUND;
+
+        if (rank)
+            *rank = dest;
+
         return NX_SUCCESS;
     }
 

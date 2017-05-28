@@ -362,9 +362,8 @@ static void discover_remote_info(nexus_ctx_t *nctx, char *hgaddr)
     bgthread_dat_t *bgarg;
     rdata_t rdat;
     rdata_t *hginfo;
-
-    MPI_Comm_rank(nctx->repcomm, &rep_rank);
-    MPI_Comm_size(nctx->repcomm, &rep_size);
+    int *repgranks;
+    hg_addr_t *repaddrs;
 
     /* Build rank => rep mapping */
     nctx->rankreps = (int *)malloc(sizeof(int) * nctx->gsize);
@@ -373,6 +372,24 @@ static void discover_remote_info(nexus_ctx_t *nctx, char *hgaddr)
 
     MPI_Allgather(&nctx->lroot, 1, MPI_INT, nctx->rankreps,
                   1, MPI_INT, MPI_COMM_WORLD);
+
+    if (nctx->grank == nctx->lroot) {
+        MPI_Comm_rank(nctx->repcomm, &rep_rank);
+        MPI_Comm_size(nctx->repcomm, &rep_size);
+    }
+
+    MPI_Bcast(&rep_size, 1, MPI_INT, 0, nctx->localcomm);
+
+    repaddrs = (hg_addr_t *)malloc(sizeof(hg_addr_t) * rep_size);
+    if (!repaddrs)
+        msg_abort("malloc failed");
+
+    repgranks = (int *)malloc(sizeof(int) * rep_size);
+    if (!repgranks)
+        msg_abort("malloc failed");
+
+    if (nctx->grank != nctx->lroot)
+        goto nonroot;
 
     /* Initialize remote Mercury listening endpoints */
     nctx->remote_hgcl = HG_Init(hgaddr, HG_TRUE);
@@ -395,7 +412,7 @@ static void discover_remote_info(nexus_ctx_t *nctx, char *hgaddr)
     if (ret != 0)
         msg_abort("pthread_create failed");
 
-    /* Exchange PID, ID, global rank, local rank among local ranks */
+    /* Local roots exchange address and global rank of dest reps */
     strncpy(rdat.addr, hgaddr, sizeof(rdat.addr));
     rdat.addr[60] = '\0';
     rdat.grank = nctx->grank;
@@ -430,6 +447,10 @@ static void discover_remote_info(nexus_ctx_t *nctx, char *hgaddr)
 
         /* Add to remote map */
         nctx->gaddrs[hginfo[eff_i].grank] = remoteaddr;
+
+        /* Add to bcast arrays */
+        repaddrs[i] = remoteaddr;
+        repgranks[i] = hginfo[eff_i].grank;
     }
 
     /* Sync before terminating background threads */
@@ -441,6 +462,23 @@ static void discover_remote_info(nexus_ctx_t *nctx, char *hgaddr)
 
     free(hginfo);
     free(bgarg);
+
+nonroot:
+    /* Broadcast local root array to all local non-root ranks */
+    MPI_Bcast(repaddrs, rep_size * sizeof(hg_addr_t), MPI_BYTE, 0,
+              nctx->localcomm);
+    MPI_Bcast(repgranks, rep_size * sizeof(int), MPI_BYTE, 0,
+              nctx->localcomm);
+
+    if (nctx->grank == nctx->lroot)
+        goto done;
+
+    for (int i = 0; i < rep_size; i++)
+        nctx->gaddrs[repgranks[i]] = repaddrs[i];
+
+done:
+    free(repgranks);
+    free(repaddrs);
 }
 
 nexus_ret_t nexus_bootstrap(nexus_ctx_t *nctx, int minport, int maxport,
@@ -496,6 +534,9 @@ nexus_ret_t nexus_destroy(nexus_ctx_t *nctx)
     if (!nctx->grank)
         fprintf(stdout, "Nexus: done local info cleanup\n");
 
+    if (nctx->grank != nctx->lroot)
+        goto nonroot;
+
     /* Free remote Mercury addresses */
     for (it = nctx->gaddrs.begin(); it != nctx->gaddrs.end(); it++)
         if (it->second != HG_ADDR_NULL)
@@ -511,6 +552,8 @@ nexus_ret_t nexus_destroy(nexus_ctx_t *nctx)
     if (!nctx->grank)
         fprintf(stdout, "Nexus: done remote info cleanup\n");
 
+nonroot:
+    free(nctx->localranks);
     free(nctx->rankreps);
     MPI_Comm_free(&nctx->repcomm);
     return NX_SUCCESS;
