@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 #
 # Basic data shuffling test for shuffle library.
 # Arguments are optional. If not provided, we run in cwd with 1 MPI process.
@@ -16,6 +16,8 @@ if [ ! -z "$2" ]; then
     MPI_PROCS=$2
 fi
 
+source $BUILD_PREFIX/../deltafs-nexus/tests/common.sh
+
 #
 # Remove na_sm files in case we hit the same PID
 # XXX: this assumes we're the only ones using na+sm instances
@@ -27,7 +29,7 @@ sleep 1
 #
 # XXX: this assumes a SunOS/linux-style ld.so (won't work on macosx)
 #
-mpirun -np $MPI_PROCS -mca btl ^openib $BUILD_PREFIX/tests/nexus-test -s "10.92"
+do_mpirun $MPI_PROCS 4 "" "$BUILD_PREFIX/tests/nexus-test -s \"10.92\""
 
 if [ $? != 0 ]; then
     echo "Nexus test failed ($?)"
