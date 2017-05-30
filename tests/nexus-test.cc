@@ -13,6 +13,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <mpi.h>
+#include <string.h>
 
 #include <deltafs_nexus.h>
 
