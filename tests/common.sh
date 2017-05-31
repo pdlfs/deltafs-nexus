@@ -139,10 +139,9 @@ do_mpirun() {
         fi
 
         if [ ! -z "$all_hosts" ]; then
-            hhstr=""
             if [ $ppnode -gt 1 ]; then
-                hhstr=`printf '&,%.0s' {1..$ppnode}`
-                hhstr=`echo $all_hosts | sed -e 's/\([^,]*\)/'"$hhstr&"'/g'`
+                hhstr="`printf '&,%.0s' $(seq 1 $(($ppnode-1)))`"
+                hhstr="`echo $hosts | sed -e 's/\([^,]*\)/'"$hhstr&"'/g'`"
                 hstr="--host $hhstr"
             else
                 hstr="--host $all_hosts"
