@@ -1,42 +1,64 @@
 #
-# CMakeLists.txt  cmake file for deltafs-nexus directory
+# CMakeLists.txt  cmake file for deltafs-nexus library
 # 12-May-2017  chuck@ece.cmu.edu
 #
 
-#
-# this file is either included from ../CMakeLists.txt or some other
-# file if we are being embedded within another project.
-#
+# list of source files
+set (deltafs-nexus-srcs nexus_setup.cc nexus_map.cc)
 
-# configure/load in standard modules we plan to use
+#
+# configure/load in standard modules we plan to use and probe the enviroment
+#
+include (CMakePackageConfigHelpers)
+
 set (CMAKE_THREAD_PREFER_PTHREAD TRUE)
 set (THREADS_PREFER_PTHREAD_FLAG TRUE)
-find_package (Threads REQUIRED)
+
+# XXX: cmake 3.1 and newer define a Threads::Threads imported target
+# that we should switch too when we are ready to require 3.1 or better.
+# (3.1 was released late 2014)
+
+# where to install files for "find_package"
+set (deltafs-nexus-pkg-loc "share/cmake/deltafs-nexus")
 
 #
-# create the library target
+# library version set here (e.g. for shared libs).
 #
-add_library (deltafs-nexus nexus_setup.cc nexus_map.cc)
+set (DELTAFS_NEXUS_VERSION_MAJOR 1)
+set (DELTAFS_NEXUS_VERSION_MINOR 0)
+set (DELTAFS_NEXUS_VERSION_PATCH 0)
+set (deltafs-nexus-vers 
+    "${DELTAFS_NEXUS_VERSION_MAJOR}.${DELTAFS_NEXUS_VERSION_MINOR}")
+set (DELTAFS_NEXUS_VERSION 
+    "${deltafs-nexus-vers}.${DELTAFS_NEXUS_VERSION_PATCH}")
 
-# XXX: Remove when we add to deltafs-umbrella
-target_include_directories (deltafs-nexus PUBLIC ${MERCURY_INCLUDE_DIR})
+#
+# create library target (user can specify shared vs. static using
+# BUILD_SHARED_LIBS).  arrange for users of our lib to get the correct
+# -Is for our include directories.
+#
+add_library (deltafs-nexus ${deltafs-nexus-srcs})
+
+# XXX: mercury link target should add MERCURY_INCLUDE_DIR for us
+target_include_directories (deltafs-nexus PUBLIC ${MERCURY_INCLUDE_DIR}
+                            $<INSTALL_INTERFACE:include>)
+# make sure our build includes are BEFORE a previously installed version
 target_include_directories (deltafs-nexus BEFORE PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>)
-target_link_libraries (deltafs-nexus mercury Threads::Threads)
+      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>)
 
+target_link_libraries (deltafs-nexus mercury)
 if (CMAKE_THREAD_LIBS_INIT)
   target_link_libraries (deltafs-nexus "${CMAKE_THREAD_LIBS_INIT}")
 endif ()
 
-#
-# make sure we link with MPI
-#
+set_target_properties(deltafs-nexus
+                      PROPERTIES VERSION ${DELTAFS_NEXUS_VERSION}
+                      SOVERSION ${DELTAFS_NEXUS_VERSION_MAJOR})
 
-# mpich on ub14 gives a leading space that we need to trim off
-foreach (lcv ${MPI_CXX_COMPILE_FLAGS_LIST})
+# special handling for MPI, where the config comes in via MPI_<lang>_ vars.
+foreach (lcv ${MPI_CXX_COMPILE_FLAGS})
     if (NOT ${lcv} STREQUAL "")
-        target_compile_options (deltafs-nexus
-                                PUBLIC $<BUILD_INTERFACE:${lcv}>)
+        target_compile_options (deltafs-nexus PUBLIC $<BUILD_INTERFACE:${lcv}>)
     endif ()
 endforeach ()
 
@@ -44,30 +66,40 @@ endforeach ()
 # error: target 'deltafs' INTERFACE_INCLUDE_DIRECTORIES contains path
 #         prefixed in the source directory
 foreach (lcv ${MPI_CXX_INCLUDE_PATH})
-    target_include_directories (deltafs-nexus
-                                PUBLIC $<BUILD_INTERFACE:${lcv}>)
+    target_include_directories (deltafs-nexus PUBLIC $<BUILD_INTERFACE:${lcv}>)
 endforeach ()
-
 foreach (lcv ${MPI_CXX_LIBRARIES})
     target_link_libraries(deltafs-nexus $<BUILD_INTERFACE:${lcv}>)
 endforeach ()
-
 # XXX: this doesn't propagate to lib users, is that a problem?
 # XXX: prob ok.
 set_property (TARGET deltafs-nexus APPEND PROPERTY LINK_FLAGS
               ${MPI_CXX_LINK_FLAGS})
+get_property (link_flags TARGET deltafs-nexus PROPERTY LINK_FLAGS)
 
 #
-# installation stuff
+# installation stuff (packaging and install commands)
 #
+write_basic_package_version_file(
+    "deltafs-nexus-config-version.cmake"
+    VERSION $DELTAFS_NEXUS_VERSIONBBOS_VERSION}
+    COMPATIBILITY AnyNewerVersion)
 
-# "make install" rules...
-install (TARGETS deltafs-nexus
+# generate our config file for find_package()
+configure_file (deltafs-nexus-config.cmake.in deltafs-nexus-config.cmake @ONLY)
+
+#
+# "make install" rules
+#
+install (TARGETS deltafs-nexus EXPORT deltafs-nexus-targets
          ARCHIVE DESTINATION lib
          LIBRARY DESTINATION lib)
-install (DIRECTORY ../../include/deltafs
-         DESTINATION include
+install (EXPORT deltafs-nexus-targets
+         DESTINATION ${deltafs-nexus-pkg-loc}
+         FILE "deltafs-nexus-targets.cmake")
+install (FILES "${CMAKE_CURRENT_BINARY_DIR}/deltafs-nexus-config.cmake"
+               "${CMAKE_CURRENT_BINARY_DIR}/deltafs-nexus-config-version.cmake"
+         DESTINATION ${deltafs-nexus-pkg-loc} )
+install (DIRECTORY ../include/
+         DESTINATION include/deltafs-nexus
          FILES_MATCHING PATTERN "*.h")
-install (FILES
-         "${CMAKE_CURRENT_SOURCE_DIR}/../include/deltafs_nexus.h"
-         DESTINATION include/deltafs)

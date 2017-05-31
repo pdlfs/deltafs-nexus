@@ -516,7 +516,7 @@ nexus_ret_t nexus_bootstrap(nexus_ctx_t *nctx, int minport, int maxport,
 
 nexus_ret_t nexus_destroy(nexus_ctx_t *nctx)
 {
-    map<int, hg_addr_t>::iterator it;
+    std::map<int, hg_addr_t>::iterator it;
 
     /* Free local Mercury addresses */
     for (it = nctx->laddrs.begin(); it != nctx->laddrs.end(); it++)

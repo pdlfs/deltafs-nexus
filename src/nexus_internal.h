@@ -16,7 +16,7 @@
 #include <mpi.h>
 #include <string.h>
 
-#include "deltafs_nexus.h"
+#include "deltafs-nexus_api.h"
 
 //#define NEXUS_DEBUG
 

@@ -15,7 +15,7 @@
 #include <mpi.h>
 #include <string.h>
 
-#include <deltafs_nexus.h>
+#include "deltafs-nexus_api.h"
 
 struct test_ctx {
     int myrank;

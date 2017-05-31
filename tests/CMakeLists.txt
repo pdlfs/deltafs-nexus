@@ -20,37 +20,11 @@ set (tests nexus)
 foreach (tst ${tests})
 
     add_executable (${tst}-test ${tst}-test.cc)
-
-    # XXX: I'm not too proud of the following. Perhaps there's a better way?
     target_link_libraries (${tst}-test deltafs-nexus)
-    target_include_directories (${tst}-test PUBLIC ${MERCURY_INCLUDE_DIR})
-    target_include_directories (${tst}-test BEFORE PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>)
 
     add_test (${tst}-single ${CMAKE_CURRENT_SOURCE_DIR}/${tst}-test.sh
                             ${CMAKE_BINARY_DIR} 1)
     add_test (${tst}-multi  ${CMAKE_CURRENT_SOURCE_DIR}/${tst}-test.sh
                             ${CMAKE_BINARY_DIR} 4)
-
-    # and because they all use MPI...
-    foreach (lcv ${MPI_CXX_COMPILE_FLAGS_LIST})
-        if (NOT ${lcv} STREQUAL "")
-            target_compile_options (${tst}-test PUBLIC ${lcv})
-        endif ()
-    endforeach ()
-
-    # XXX: have to do this one dir at a time otherwise, otherwise I get
-    # error: target 'deltafs' INTERFACE_INCLUDE_DIRECTORIES contains path
-    #               prefixed in the source directory
-    foreach (lcv ${MPI_CXX_INCLUDE_PATH})
-        target_include_directories (${tst}-test PUBLIC ${lcv})
-    endforeach ()
-
-    foreach (lcv ${MPI_CXX_LIBRARIES})
-        target_link_libraries (${tst}-test ${lcv})
-    endforeach ()
-
-    set_property (TARGET ${tst}-test APPEND PROPERTY LINK_FLAGS
-                  ${MPI_CXX_LINK_FLAGS})
 
 endforeach ()

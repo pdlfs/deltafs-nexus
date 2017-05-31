@@ -4,19 +4,21 @@
 #
 
 #
-# specify the location of mercury with CMAKE_INSTALL_PATH or
-# CMAKE_PREFIX_PATH...
+#  general cmake flags:
+#    -DCMAKE_INSTALL_PREFIX=/usr/local     -- the prefix for installing
+#    -DCMAKE_BUILD_TYPE=type               -- type can be DEBUG, RELEASE, ...
+#    -DCMAKE_PREFIX_PATH=/dir              -- external packages
 #
-cmake_minimum_required(VERSION 3.1)
+#     note that CMAKE_PREFIX_PATH can be a list of directories:
+#      -DCMAKE_PREFIX_PATH='/dir1;/dir2;/dir3'
+#
+
+cmake_minimum_required(VERSION 3.0)
 project (deltafs-nexus C CXX)
 enable_testing ()
 
 # link shared lib with full rpath
 set (CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
-
-# nexus library is always shared, force on and hide it as an advanced var
-set (BUILD_SHARED_LIBS On CACHE STRING "Build shared libs (must be on)." FORCE)
-mark_as_advanced (BUILD_SHARED_LIBS)
 
 # setup cache variables for ccmake
 if (NOT CMAKE_BUILD_TYPE)
@@ -29,6 +31,7 @@ set (DEBUG_SANITIZER Off CACHE STRING "Sanitizer for debug builds")
 set_property (CACHE DEBUG_SANITIZER PROPERTY STRINGS
               "Off" "Address" "Thread")
 set (CMAKE_PREFIX_PATH "" CACHE STRING "External dependencies path")
+set (BUILD_SHARED_LIBS "OFF" CACHE BOOL "Build a shared library")
 
 #
 # sanitizer config (XXX: does not probe compiler to see if sanitizer flags
@@ -47,8 +50,11 @@ if (${CMAKE_BUILD_TYPE} STREQUAL "Debug")
 endif ()
 
 # Find required packages
+find_package (Threads REQUIRED)
 find_package (mercury CONFIG REQUIRED)
+
 find_package (MPI MODULE REQUIRED)
+# XXX: mpich on ub14 gives a leading space that we need to trim off
 string (REPLACE " " ";" MPI_CXX_COMPILE_FLAGS_LIST "${MPI_CXX_COMPILE_FLAGS}")
 
 add_subdirectory (src)
