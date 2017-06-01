@@ -63,6 +63,7 @@ nexus_ret_t nexus_next_hop(nexus_ctx_t *nctx, int dest,
     int srcrep, destrep;
     std::map<int,hg_addr_t>::iterator it;
 
+#if 0
     /* If we are the dest, stop here */
     if (nctx->grank == dest)
         return NX_DONE;
@@ -120,4 +121,6 @@ nexus_ret_t nexus_next_hop(nexus_ctx_t *nctx, int dest,
     }
 
     return NX_INVAL;
+#endif
+    return NX_SUCCESS;
 }

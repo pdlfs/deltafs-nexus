@@ -173,6 +173,7 @@ int main(int argc, char **argv)
         goto error;
     }
 
+#if 0
     for (int i = 1; i <= tctx.count; i++) {
         int srcrep = -1, dstrep = -1, dest = -1;
         int src = tctx.myrank;
@@ -215,6 +216,7 @@ done:
                         " -> dst_rep=%d -> dst=%d\n",
                 src, i, src, srcrep, dstrep, dst);
     }
+#endif
 
     if (nexus_destroy(&(tctx.nctx))) {
         fprintf(stderr, "Error: nexus_destroy failed\n");

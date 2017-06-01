@@ -24,8 +24,8 @@ struct nexus_ctx
     int lsize;                       /* number of local ranks */
     int lroot;                       /* global rank of local root */
 
-    int *localranks;                 /* local -> global ranks */
-    int *rankreps;                   /* rank -> (remote) representative */
+    //int *localranks;                 /* local -> global ranks */
+    //int *rankreps;                   /* rank -> (remote) representative */
     std::map<int,hg_addr_t> laddrs;  /* map of local rank -> Hg address */
     std::map<int,hg_addr_t> gaddrs;  /* map of remote rank -> Hg address */
 
@@ -34,8 +34,8 @@ struct nexus_ctx
     MPI_Comm repcomm;
 
     /* Mercury endpoint state */
-    hg_class_t *remote_hgcl;         /* Remote Hg class */
-    hg_context_t *remote_hgctx;      /* Remote Hg context */
+    //hg_class_t *remote_hgcl;         /* Remote Hg class */
+    //hg_context_t *remote_hgctx;      /* Remote Hg context */
     hg_class_t *local_hgcl;          /* Local Hg class */
     hg_context_t *local_hgctx;       /* Local Hg context */
 };

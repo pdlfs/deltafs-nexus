@@ -34,25 +34,31 @@ static inline void msg_abort(const char* msg)
     abort();
 }
 
-static void print_hg_addr(hg_class_t *hgcl, char *str, hg_addr_t hgaddr)
+static void print_addrs(nexus_ctx_t *nctx, hg_class_t *hgcl,
+                        std::map<int,hg_addr_t> addrmap)
 {
+    std::map<int,hg_addr_t>::iterator it;
     char *addr_str = NULL;
     hg_size_t addr_size = 0;
     hg_return_t hret;
 
-    hret = HG_Addr_to_string(hgcl, NULL, &addr_size, hgaddr);
-    if (hgaddr == NULL)
-        msg_abort("HG_Addr_to_string failed");
+    for (it = addrmap.begin(); it != addrmap.end(); it++) {
+        hret = HG_Addr_to_string(hgcl, NULL, &addr_size, it->second);
+        if (hret != HG_SUCCESS)
+            msg_abort("HG_Addr_to_string failed");
 
-    addr_str = (char *)malloc(addr_size);
-    if (addr_str == NULL)
-        msg_abort("malloc failed");
+        addr_str = (char *)malloc(addr_size);
+        if (addr_str == NULL)
+            msg_abort("malloc failed");
 
-    hret = HG_Addr_to_string(hgcl, addr_str, &addr_size, hgaddr);
-    if (hret != HG_SUCCESS)
-        msg_abort("HG_Addr_to_string failed");
+        hret = HG_Addr_to_string(hgcl, addr_str, &addr_size, it->second);
+        if (hret != HG_SUCCESS)
+            msg_abort("HG_Addr_to_string failed");
 
-    fprintf(stdout, "Mercury address: %s => %s\n", str, addr_str);
+        fprintf(stdout, "[%d] Mercury addr for rank %d: %s\n",
+                nctx->grank, it->first, addr_str);
+        free(addr_str);
+    }
 }
 
 static void init_local_comm(nexus_ctx_t *nctx)

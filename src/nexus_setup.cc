@@ -37,6 +37,12 @@
 #include "nexus_internal.h"
 
 typedef struct {
+    char addr[32];
+    int grank;
+    int lrank;
+} xchg_dat_t;
+
+typedef struct {
     hg_context_t *hgctx;
     int bgdone;
 } bgthread_dat_t;
@@ -177,77 +183,119 @@ static void prepare_addr(nexus_ctx_t *nctx, int minport, int maxport,
 
 typedef struct hg_lookup_out {
     hg_return_t hret;
-    hg_addr_t addr;
-    pthread_mutex_t cb_mutex;
-    pthread_cond_t cb_cv;
+    nexus_ctx_t *nctx;
+    int grank;
+
+    /* State to track progress */
+    int *count;
+    pthread_mutex_t *cb_mutex;
+    pthread_cond_t *cb_cv;
 } hg_lookup_out_t;
 
 static hg_return_t hg_lookup_cb(const struct hg_cb_info *info)
 {
     hg_lookup_out_t *out = (hg_lookup_out_t *)info->arg;
+    nexus_ctx_t *nctx = out->nctx;
     out->hret = info->ret;
-    if (out->hret != HG_SUCCESS)
-        out->addr = HG_ADDR_NULL;
-    else
-        out->addr = info->info.lookup.addr;
 
-    pthread_mutex_lock(&out->cb_mutex);
-    pthread_cond_signal(&out->cb_cv);
-    pthread_mutex_unlock(&out->cb_mutex);
+    pthread_mutex_lock(out->cb_mutex);
+
+    /* Add address to map */
+    if (out->hret != HG_SUCCESS)
+        nctx->laddrs[out->grank] = HG_ADDR_NULL;
+    else
+        nctx->laddrs[out->grank] = info->info.lookup.addr;
+
+    *(out->count) += 1;
+    pthread_cond_signal(out->cb_cv);
+    pthread_mutex_unlock(out->cb_mutex);
 
     return HG_SUCCESS;
 }
 
-static hg_return_t hg_lookup(nexus_ctx_t *nctx, hg_context_t *hgctx,
-                             char *hgaddr, hg_addr_t *addr)
+static hg_return_t lookup_hgaddrs(nexus_ctx_t *nctx, hg_context_t *hgctx,
+                                  xchg_dat_t *xarray, int xsize)
 {
     hg_lookup_out_t *out = NULL;
     hg_return_t hret;
+    pthread_mutex_t cb_mutex;
+    pthread_cond_t cb_cv;
+    int count = 0;
 
     /* Init addr metadata */
-    out = (hg_lookup_out_t *)malloc(sizeof(*out));
+    out = (hg_lookup_out_t *)malloc(sizeof(*out) * xsize);
     if (out == NULL)
         return HG_NOMEM_ERROR;
 
-    /* rank is set, perform lookup */
-    pthread_mutex_init(&out->cb_mutex, NULL);
-    pthread_cond_init(&out->cb_cv, NULL);
-    pthread_mutex_lock(&out->cb_mutex);
-    hret = HG_Addr_lookup(hgctx, &hg_lookup_cb, out, hgaddr, HG_OP_ID_IGNORE);
-    if (hret != HG_SUCCESS)
-        goto err;
+    pthread_mutex_init(&cb_mutex, NULL);
+    pthread_cond_init(&cb_cv, NULL);
 
-    /* Lookup posted, wait until finished */
-    pthread_cond_wait(&out->cb_cv, &out->cb_mutex);
-    pthread_mutex_unlock(&out->cb_mutex);
+    pthread_mutex_lock(&cb_mutex);
 
-    if (out->hret != HG_SUCCESS) {
-        hret = out->hret;
-    } else {
-        hret = HG_SUCCESS;
-        *addr = out->addr;
+    /* Post all lookups */
+    for (int i = 0; i < xsize; i++) {
+        int eff_i = (nctx->grank + i) % xsize;
+
+        /* Populate out struct */
+        out[eff_i].nctx = nctx;
+        out[eff_i].grank = xarray[eff_i].grank;
+        out[eff_i].count = &count;
+        out[eff_i].cb_mutex = &cb_mutex;
+        out[eff_i].cb_cv = &cb_cv;
+
+#ifdef NEXUS_DEBUG
+        fprintf(stdout, "[%d] Idx %d: addr %s, grank %d (xsize = %d)\n",
+                nctx->grank, eff_i, xarray[eff_i].addr, xarray[eff_i].grank, xsize);
+#endif
+
+        if (xarray[eff_i].grank == nctx->grank) {
+            /* This is us, skip */
+            count++;
+        } else {
+            hret = HG_Addr_lookup(hgctx, &hg_lookup_cb, &out[eff_i],
+                                  xarray[eff_i].addr, HG_OP_ID_IGNORE);
+        }
+
+        if (hret != HG_SUCCESS) {
+            pthread_mutex_unlock(&cb_mutex);
+            goto err;
+        }
     }
 
+    /* Lookup posted, wait until finished */
+again:
+    if (xsize > 1) {
+        pthread_cond_wait(&cb_cv, &cb_mutex);
+        if (count < xsize)
+            goto again;
+    }
+    pthread_mutex_unlock(&cb_mutex);
+
+    hret = HG_SUCCESS;
+    for (int i = 0; i < xsize; i++) {
+        if (out[i].grank != nctx->grank && out[i].hret != HG_SUCCESS) {
+            hret = out[i].hret;
+            goto err;
+        }
+    }
+
+#ifdef NEXUS_DEBUG
+    print_addrs(nctx, nctx->local_hgcl, nctx->laddrs);
+#endif
+
 err:
-    pthread_cond_destroy(&out->cb_cv);
-    pthread_mutex_destroy(&out->cb_mutex);
+    pthread_cond_destroy(&cb_cv);
+    pthread_mutex_destroy(&cb_mutex);
     free(out);
     return hret;
 }
 
-typedef struct {
-    int pid;
-    int hgid;
-    int grank;
-    int lrank;
-} ldata_t;
-
 static void discover_local_info(nexus_ctx_t *nctx)
 {
     int ret;
-    char hgaddr[128];
-    ldata_t ldat;
-    ldata_t *hginfo;
+    char hgaddr[32];
+    xchg_dat_t xitem;
+    xchg_dat_t *xarray;
     hg_return_t hret;
     pthread_t bgthread; /* network background thread */
     bgthread_dat_t *bgarg;
@@ -281,63 +329,30 @@ static void discover_local_info(nexus_ctx_t *nctx)
     if (ret != 0)
         msg_abort("pthread_create failed");
 
-    /* Exchange PID, ID, global rank, local rank among local ranks */
-    ldat.pid = getpid();
-    ldat.hgid = 0;
-    ldat.grank = nctx->grank;
-    ldat.lrank = nctx->lrank;
+    /* Exchange addresses, global, and local ranks in local comm */
+    strncpy(xitem.addr, hgaddr, sizeof(xitem.addr));
+    xitem.grank = nctx->grank;
+    xitem.lrank = nctx->lrank;
 
-    hginfo = (ldata_t *)malloc(sizeof(ldata_t) * (nctx->lsize));
-    if (!hginfo)
+    xarray = (xchg_dat_t *)malloc(sizeof(xchg_dat_t) * (nctx->lsize));
+    if (!xarray)
         msg_abort("malloc failed");
 
-    MPI_Allgather(&ldat, sizeof(ldata_t), MPI_BYTE, hginfo,
-                  sizeof(ldata_t), MPI_BYTE, nctx->localcomm);
+    MPI_Allgather(&xitem, sizeof(xchg_dat_t), MPI_BYTE,
+                  xarray, sizeof(xchg_dat_t), MPI_BYTE, nctx->localcomm);
 
-    /* Build local => global rank map */
-    nctx->localranks = (int *)malloc(sizeof(int) * (nctx->lsize));
-    if (!nctx->localranks)
-        msg_abort("malloc failed");
-
+    /* Tease out the local root for rep comm construction */
     for (int i = 0; i < nctx->lsize; i++) {
-        int eff_i = (nctx->lrank + i) % nctx->lsize;
-        hg_addr_t localaddr;
-
-        /* Find the local root */
-        if (hginfo[eff_i].lrank == 0)
-            nctx->lroot = hginfo[eff_i].grank;
-
-        /* Update mapping */
-        nctx->localranks[hginfo[eff_i].lrank] = hginfo[eff_i].grank;
-
-#ifdef NEXUS_DEBUG
-        fprintf(stdout, "[%d] Idx %d: pid %d, id %d, grank %d, lrank %d\n",
-                nctx->grank, eff_i, hginfo[eff_i].pid, hginfo[eff_i].hgid,
-                hginfo[eff_i].grank, hginfo[eff_i].lrank);
-#endif
-
-        snprintf(hgaddr, sizeof(hgaddr), "na+sm://%d/%d",
-                 hginfo[eff_i].pid, hginfo[eff_i].hgid);
-
-        if (hginfo[eff_i].grank == nctx->grank) {
-            hret = HG_Addr_self(nctx->local_hgcl, &localaddr);
-        } else {
-            hret = hg_lookup(nctx, nctx->local_hgctx, hgaddr, &localaddr);
+        if (xarray[i].lrank == 0) {
+            nctx->lroot = xarray[i].grank;
+            break;
         }
-
-        if (hret != HG_SUCCESS) {
-            fprintf(stderr, "Tried to lookup %s\n", hgaddr);
-            msg_abort("hg_lookup failed");
-        }
-
-        /* Add to local map */
-        nctx->laddrs[hginfo[eff_i].grank] = localaddr;
-#ifdef NEXUS_DEBUG
-        print_hg_addr(nctx->local_hgcl, hgaddr, localaddr);
-#endif
     }
 
-    free(hginfo);
+    /* Look up local Mercury addresses */
+    if (lookup_hgaddrs(nctx, nctx->local_hgctx, xarray,
+                       nctx->lsize) != HG_SUCCESS)
+        msg_abort("lookup_hgaddrs failed");
 
     /* Sync before terminating background threads */
     MPI_Barrier(nctx->localcomm);
@@ -347,13 +362,10 @@ static void discover_local_info(nexus_ctx_t *nctx)
     pthread_join(bgthread, NULL);
 
     free(bgarg);
+    free(xarray);
 }
 
-typedef struct {
-    char addr[60];
-    int grank;
-} rdata_t;
-
+#if 0
 static void discover_remote_info(nexus_ctx_t *nctx, char *hgaddr)
 {
     int ret, rep_size, rep_rank;
@@ -480,6 +492,7 @@ done:
     free(repgranks);
     free(repaddrs);
 }
+#endif
 
 nexus_ret_t nexus_bootstrap(nexus_ctx_t *nctx, int minport, int maxport,
                             char *subnet, char *proto)
@@ -499,12 +512,14 @@ nexus_ret_t nexus_bootstrap(nexus_ctx_t *nctx, int minport, int maxport,
     if (!nctx->grank)
         fprintf(stdout, "Nexus: done local info discovery\n");
 
+#if 0
     prepare_addr(nctx, minport, maxport, subnet, proto, hgaddr);
     init_rep_comm(nctx);
     discover_remote_info(nctx, hgaddr);
 
     if (!nctx->grank)
         fprintf(stdout, "Nexus: done remote info discovery\n");
+#endif
 
 #ifdef NEXUS_DEBUG
     fprintf(stdout, "[%d] grank = %d, lrank = %d, gsize = %d, lsize = %d\n",
@@ -534,6 +549,7 @@ nexus_ret_t nexus_destroy(nexus_ctx_t *nctx)
     if (!nctx->grank)
         fprintf(stdout, "Nexus: done local info cleanup\n");
 
+#if 0
     if (nctx->grank != nctx->lroot)
         goto nonroot;
 
@@ -556,5 +572,6 @@ nonroot:
     free(nctx->localranks);
     free(nctx->rankreps);
     MPI_Comm_free(&nctx->repcomm);
+#endif
     return NX_SUCCESS;
 }
