@@ -43,6 +43,11 @@ typedef struct {
 } xchg_dat_t;
 
 typedef struct {
+    int nodesz;
+    char **addr;
+} xchg_nlists_t;
+
+typedef struct {
     hg_context_t *hgctx;
     int bgdone;
 } bgthread_dat_t;
@@ -365,43 +370,94 @@ static void discover_local_info(nexus_ctx_t *nctx)
     free(xarray);
 }
 
-#if 0
-static void discover_remote_info(nexus_ctx_t *nctx, char *hgaddr)
+#define BMIADDRSZ   32
+
+static void build_nodelists(nexus_ctx_t *nctx)
 {
-    int ret, rep_size, rep_rank;
-    hg_return_t hret;
-    pthread_t bgthread; /* network background thread */
-    bgthread_dat_t *bgarg;
-    rdata_t rdat;
-    rdata_t *hginfo;
-    int *repgranks;
-    hg_addr_t *repaddrs;
+    int i, maxnodesz;
+    int *msgdata, *nodelists;
 
-    /* Build rank => rep mapping */
-    nctx->rankreps = (int *)malloc(sizeof(int) * nctx->gsize);
-    if (!nctx->rankreps)
-        msg_abort("malloc failed");
+    /*
+     * To find our peer on each node, we need to construct a list of ranks per
+     * node. This is tricky with collectives if we want to support heterogeneous
+     * nodes. We do this in four steps:
+     * - find max number of ranks per node, M
+     * - local roots construct (M+1)-sized array of (# ranks, r0, r1, ...)
+     * - local roots all-gather (M+1)-sized arrays (on repcomm)
+     * - local roots broadcast finished array (on localcomm)
+     */
 
-    MPI_Allgather(&nctx->lroot, 1, MPI_INT, nctx->rankreps,
-                  1, MPI_INT, MPI_COMM_WORLD);
+    /* Step 1: find max number of ranks per node */
+    MPI_Allreduce(&nctx->lsize, &maxnodesz, 1, MPI_INT,
+                  MPI_MAX, MPI_COMM_WORLD);
 
-    if (nctx->grank == nctx->lroot) {
-        MPI_Comm_rank(nctx->repcomm, &rep_rank);
-        MPI_Comm_size(nctx->repcomm, &rep_size);
-    }
-
-    MPI_Bcast(&rep_size, 1, MPI_INT, 0, nctx->localcomm);
-
-    repaddrs = (hg_addr_t *)malloc(sizeof(hg_addr_t) * rep_size);
-    if (!repaddrs)
-        msg_abort("malloc failed");
-
-    repgranks = (int *)malloc(sizeof(int) * rep_size);
-    if (!repgranks)
+    nodelists = (int *)malloc(sizeof(int) * (maxnodesz+1) * nctx->nodesz);
+    if (!nodelists)
         msg_abort("malloc failed");
 
     if (nctx->grank != nctx->lroot)
         goto nonroot;
+
+    /* Step 2: construct local node list */
+    msgdata = (int *)malloc(sizeof(int) * (maxnodesz+1));
+    if (!msgdata)
+        msg_abort("malloc failed");
+
+    i = 2;
+    msgdata[0] = nctx->lsize;
+    msgdata[1] = nctx->grank;
+    for (std::map<int,hg_addr_t>::iterator it = nctx->laddrs.begin();
+            it != nctx->laddrs.end(); it++)
+        msgdata[i++] = it->first;
+
+    /* Step 3: exchange local node lists */
+    MPI_Allgather(msgdata, maxnodesz + 1, MPI_INT,
+                  nodelists, maxnodesz + 1, MPI_INT, nctx->repcomm);
+
+    free(msgdata);
+nonroot:
+    /* Step 4: broadcast finished node lists array */
+    MPI_Bcast(nodelists, (maxnodesz+1) * nctx->nodesz * sizeof(int),
+              MPI_BYTE, 0, nctx->localcomm);
+
+#ifdef NEXUS_DEBUG
+    for (int i = 0; i < ((maxnodesz+1) * nctx->nodesz); i++)
+        fprintf(stdout, "[%d] i = %d, data = %d\n",
+                nctx->grank, i, nodelists[i]);
+#endif
+
+    free(nodelists);
+}
+
+static void discover_remote_info(nexus_ctx_t *nctx, char *hgaddr)
+{
+    int ret;
+#if 0
+    hg_return_t hret;
+    rdata_t rdat;
+    rdata_t *hginfo;
+    int *repgranks;
+    hg_addr_t *repaddrs;
+#endif
+    pthread_t bgthread; /* network background thread */
+    bgthread_dat_t *bgarg;
+
+    /* Find node IDs, number of nodes and broadcast them */
+    if (nctx->grank == nctx->lroot) {
+        MPI_Comm_rank(nctx->repcomm, &nctx->nodeid);
+        MPI_Comm_size(nctx->repcomm, &nctx->nodesz);
+    }
+
+    MPI_Bcast(&nctx->nodeid, 1, MPI_INT, 0, nctx->localcomm);
+    MPI_Bcast(&nctx->nodesz, 1, MPI_INT, 0, nctx->localcomm);
+
+    /* Build global rank -> node id array */
+    nctx->rank2node = (int *)malloc(sizeof(int) * nctx->gsize);
+    if (!nctx->rank2node)
+        msg_abort("malloc failed");
+
+    MPI_Allgather(&nctx->nodeid, 1, MPI_INT, nctx->rank2node,
+                  1, MPI_INT, MPI_COMM_WORLD);
 
     /* Initialize remote Mercury listening endpoints */
     nctx->remote_hgcl = HG_Init(hgaddr, HG_TRUE);
@@ -424,6 +480,9 @@ static void discover_remote_info(nexus_ctx_t *nctx, char *hgaddr)
     if (ret != 0)
         msg_abort("pthread_create failed");
 
+    build_nodelists(nctx);
+
+#if 0
     /* Local roots exchange address and global rank of dest reps */
     strncpy(rdat.addr, hgaddr, sizeof(rdat.addr));
     rdat.addr[60] = '\0';
@@ -467,13 +526,15 @@ static void discover_remote_info(nexus_ctx_t *nctx, char *hgaddr)
 
     /* Sync before terminating background threads */
     MPI_Barrier(nctx->repcomm);
+#endif
 
     /* Terminate network thread */
     bgarg->bgdone = 1;
     pthread_join(bgthread, NULL);
 
-    free(hginfo);
     free(bgarg);
+#if 0
+    free(hginfo);
 
 nonroot:
     /* Broadcast local root array to all local non-root ranks */
@@ -491,13 +552,13 @@ nonroot:
 done:
     free(repgranks);
     free(repaddrs);
-}
 #endif
+}
 
 nexus_ret_t nexus_bootstrap(nexus_ctx_t *nctx, int minport, int maxport,
                             char *subnet, char *proto)
 {
-    char hgaddr[128];
+    char hgaddr[32];
 
     /* Grab MPI rank info */
     MPI_Comm_rank(MPI_COMM_WORLD, &(nctx->grank));
@@ -512,14 +573,12 @@ nexus_ret_t nexus_bootstrap(nexus_ctx_t *nctx, int minport, int maxport,
     if (!nctx->grank)
         fprintf(stdout, "Nexus: done local info discovery\n");
 
-#if 0
     prepare_addr(nctx, minport, maxport, subnet, proto, hgaddr);
     init_rep_comm(nctx);
     discover_remote_info(nctx, hgaddr);
 
     if (!nctx->grank)
         fprintf(stdout, "Nexus: done remote info discovery\n");
-#endif
 
 #ifdef NEXUS_DEBUG
     fprintf(stdout, "[%d] grank = %d, lrank = %d, gsize = %d, lsize = %d\n",
@@ -549,17 +608,15 @@ nexus_ret_t nexus_destroy(nexus_ctx_t *nctx)
     if (!nctx->grank)
         fprintf(stdout, "Nexus: done local info cleanup\n");
 
-#if 0
-    if (nctx->grank != nctx->lroot)
-        goto nonroot;
-
     /* Free remote Mercury addresses */
     for (it = nctx->gaddrs.begin(); it != nctx->gaddrs.end(); it++)
         if (it->second != HG_ADDR_NULL)
             HG_Addr_free(nctx->remote_hgcl, it->second);
 
+#if 0
     /* Sync before tearing down remote endpoints */
     MPI_Barrier(nctx->repcomm);
+#endif
 
     /* Destroy Mercury remote endpoints */
     HG_Context_destroy(nctx->remote_hgctx);
@@ -568,10 +625,10 @@ nexus_ret_t nexus_destroy(nexus_ctx_t *nctx)
     if (!nctx->grank)
         fprintf(stdout, "Nexus: done remote info cleanup\n");
 
-nonroot:
+#if 0
     free(nctx->localranks);
-    free(nctx->rankreps);
-    MPI_Comm_free(&nctx->repcomm);
 #endif
+    free(nctx->rank2node);
+    MPI_Comm_free(&nctx->repcomm);
     return NX_SUCCESS;
 }

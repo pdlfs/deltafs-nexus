@@ -25,6 +25,6 @@ foreach (tst ${tests})
     add_test (${tst}-single ${CMAKE_CURRENT_SOURCE_DIR}/${tst}-test.sh
                             ${CMAKE_BINARY_DIR} 1)
     add_test (${tst}-multi  ${CMAKE_CURRENT_SOURCE_DIR}/${tst}-test.sh
-                            ${CMAKE_BINARY_DIR} 4)
+                            ${CMAKE_BINARY_DIR} 8)
 
 endforeach ()

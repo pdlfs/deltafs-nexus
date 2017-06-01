@@ -29,7 +29,7 @@ sleep 1
 #
 # XXX: this assumes a SunOS/linux-style ld.so (won't work on macosx)
 #
-do_mpirun $MPI_PROCS 4 "" "$BUILD_PREFIX/tests/nexus-test -s \"10.92\""
+do_mpirun $MPI_PROCS 4 "" "$BUILD_PREFIX/tests/nexus-test -s 10.92"
 
 if [ $? != 0 ]; then
     echo "Nexus test failed ($?)"
