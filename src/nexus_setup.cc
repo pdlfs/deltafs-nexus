@@ -253,14 +253,8 @@ static hg_return_t lookup_addrs(nexus_ctx_t *nctx, hg_context_t *hgctx,
                 nctx->grank, eff_i, xarray[eff_i].addr, xarray[eff_i].grank, xsize);
 #endif
 
-        if (xarray[eff_i].grank == nctx->grank) {
-            /* This is us, skip */
-            count++;
-        } else {
-            hret = HG_Addr_lookup(hgctx, &hg_lookup_cb, &out[eff_i],
-                                  xarray[eff_i].addr, HG_OP_ID_IGNORE);
-        }
-
+        hret = HG_Addr_lookup(hgctx, &hg_lookup_cb, &out[eff_i],
+                              xarray[eff_i].addr, HG_OP_ID_IGNORE);
         if (hret != HG_SUCCESS) {
             pthread_mutex_unlock(&cb_mutex);
             goto err;
@@ -269,7 +263,7 @@ static hg_return_t lookup_addrs(nexus_ctx_t *nctx, hg_context_t *hgctx,
 
     /* Lookup posted, wait until finished */
 again:
-    if (count < xsize || xsize > 1) {
+    if (count < xsize) {
         pthread_cond_wait(&cb_cv, &cb_mutex);
         if (count < xsize)
             goto again;
@@ -278,7 +272,7 @@ again:
 
     hret = HG_SUCCESS;
     for (int i = 0; i < xsize; i++) {
-        if (out[i].grank != nctx->grank && out[i].hret != HG_SUCCESS) {
+        if (out[i].hret != HG_SUCCESS) {
             hret = out[i].hret;
             goto err;
         }
@@ -450,14 +444,6 @@ nonroot:
                 nctx->grank, i, nodelists[i]);
 #endif
 
-    /* Build the node -> size array while we're at it */
-    nctx->node2size = (int *)malloc(sizeof(int) * nctx->nodesz);
-    if (!nctx->node2size)
-        msg_abort("malloc failed");
-
-    for (i = 0; i < nctx->nodesz; i++)
-        nctx->node2size[i] = nodelists[i * (maxnodesz + 1)];
-
     /*
      * Time to construct an array of peer addresses. We'll do this in two steps:
      * - find total number of peers, which is ceil(# nodes / # local ranks)
@@ -496,7 +482,7 @@ nonroot:
         remote_addr = NADDR(rank2addr, remote_grank);
 
         strncpy(paddrs[npeers].addr, remote_addr, HGADDRSZ);
-        paddrs[npeers].grank = remote_grank;
+        paddrs[npeers].grank = i; /* store node ID, not rank */
 
         i += nctx->lsize;
         npeers += 1;
@@ -655,7 +641,6 @@ nexus_ret_t nexus_destroy(nexus_ctx_t *nctx)
     if (!nctx->grank)
         fprintf(stdout, "Nexus: done remote info cleanup\n");
 
-    free(nctx->node2size);
     free(nctx->local2global);
     free(nctx->rank2node);
     MPI_Comm_free(&nctx->repcomm);

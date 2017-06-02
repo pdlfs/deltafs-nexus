@@ -31,10 +31,9 @@ struct nexus_ctx
 
     int *local2global;          /* local rank -> global rank */
     int *rank2node;             /* rank -> node ID */
-    int *node2size;             /* node ID -> number of local ranks */
 
-    nexus_map_t laddrs;         /* map of local rank -> Hg address */
-    nexus_map_t gaddrs;         /* map of remote rank -> Hg address */
+    nexus_map_t laddrs;         /* local rank -> Hg address */
+    nexus_map_t gaddrs;         /* remote node -> Hg address of our rep */
 
     /* MPI communicators */
     MPI_Comm localcomm;
