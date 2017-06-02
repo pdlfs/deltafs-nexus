@@ -173,7 +173,6 @@ int main(int argc, char **argv)
         goto error;
     }
 
-#if 0
     for (int i = 1; i <= tctx.count; i++) {
         int srcrep = -1, dstrep = -1, dest = -1;
         int src = tctx.myrank;
@@ -181,8 +180,12 @@ int main(int argc, char **argv)
         hg_addr_t sr_addr, dr_addr, d_addr;
         nexus_ret_t nret;
 
+        fprintf(stdout, "[r%d,i%d] Trying to route: src=%d -> ... -> dst=%d\n",
+                src, i, src, dst);
+
         /* Get srcrep */
         nret = nexus_next_hop(&(tctx.nctx), dst, &srcrep, &sr_addr);
+#if 0
         if (nret == NX_DONE) {
             fprintf(stdout, "[r%d,i%d] Route: src (%d) and dst (%d) overlap\n",
                     src, i, src, dst);
@@ -193,6 +196,7 @@ int main(int argc, char **argv)
             continue;
         } else if (nret == NX_SRCREP) {
             /* Get dstrep */
+            fprintf(stdout, "[r%d,i%d] got srcrep = %d\n", src, i, srcrep);
             tctx.nctx.grank = srcrep; /* Trick Nexus to think we advanced */
             nret = nexus_next_hop(&(tctx.nctx), dst, &dstrep, &dr_addr);
 
@@ -206,6 +210,7 @@ int main(int argc, char **argv)
         } else if (nret != NX_SUCCESS) {
             msg_abort("nexus_next_hop for srcrep failed");
         }
+#endif
 
 #if 0
         print_hg_addr(tctx.hgcl, srcrep, "srcrep");
@@ -216,7 +221,6 @@ done:
                         " -> dst_rep=%d -> dst=%d\n",
                 src, i, src, srcrep, dstrep, dst);
     }
-#endif
 
     if (nexus_destroy(&(tctx.nctx))) {
         fprintf(stderr, "Error: nexus_destroy failed\n");

@@ -31,6 +31,7 @@ struct nexus_ctx
 
     int *local2global;          /* local rank -> global rank */
     int *rank2node;             /* rank -> node ID */
+    int *node2rep;              /* node -> rep global rank */
 
     nexus_map_t laddrs;         /* local rank -> Hg address */
     nexus_map_t gaddrs;         /* remote node -> Hg address of our rep */

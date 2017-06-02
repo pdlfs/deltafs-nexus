@@ -345,7 +345,7 @@ static void discover_local_info(nexus_ctx_t *nctx)
         nctx->local2global[xarray[i].lrank] = xarray[i].grank;
         if (xarray[i].lrank == 0) {
             nctx->lroot = xarray[i].grank;
-            break;
+            continue;
         }
     }
 
@@ -422,9 +422,8 @@ static void find_remote_addrs(nexus_ctx_t *nctx, char *myaddr)
     if (!msgdata)
         msg_abort("malloc failed");
 
-    i = 2;
+    i = 1;
     msgdata[0] = nctx->lsize;
-    msgdata[1] = nctx->grank;
     for (nexus_map_t::iterator it = nctx->laddrs.begin();
                                it != nctx->laddrs.end(); it++)
         msgdata[i++] = it->first;
@@ -457,6 +456,17 @@ nonroot:
     paddrs = (xchg_dat_t *)malloc(sizeof(xchg_dat_t) * maxpeers);
     if (!paddrs)
         msg_abort("malloc failed");
+
+    /* Keep info on global ranks of remote reps in node2rep */
+    nctx->node2rep = (int *)malloc(sizeof(int) * nctx->nodesz);
+    if (!nctx->node2rep)
+        msg_abort("malloc failed");
+
+    for (i = 0; i < nctx->nodesz; i++) {
+        int idx = i * (maxnodesz + 1);
+        int remote_lsize = nodelists[idx];
+        nctx->node2rep[i] = nodelists[idx + 1 + (nctx->nodeid % remote_lsize)];
+    }
 
     /*
      * We will communicate with a node, if its node ID modulo our node's rank
@@ -641,6 +651,7 @@ nexus_ret_t nexus_destroy(nexus_ctx_t *nctx)
     if (!nctx->grank)
         fprintf(stdout, "Nexus: done remote info cleanup\n");
 
+    free(nctx->node2rep);
     free(nctx->local2global);
     free(nctx->rank2node);
     MPI_Comm_free(&nctx->repcomm);

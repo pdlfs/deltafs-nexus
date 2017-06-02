@@ -41,17 +41,12 @@ static bool nexus_is_local(nexus_ctx_t *nctx, int rank)
     return false;
 }
 
-static hg_addr_t nexus_get_addr(nexus_ctx_t *nctx, int rank)
+static hg_addr_t nexus_get_addr(nexus_map_t map, int key)
 {
     nexus_map_t::iterator it;
 
-    /* Prefer local addresses when possible */
-    it = nctx->laddrs.find(rank);
-    if (it != nctx->laddrs.end())
-        return it->second;
-
-    it = nctx->gaddrs.find(rank);
-    if (it != nctx->gaddrs.end())
+    it = map.find(key);
+    if (it != map.end())
         return it->second;
 
     return HG_ADDR_NULL;
@@ -61,16 +56,16 @@ nexus_ret_t nexus_next_hop(nexus_ctx_t *nctx, int dest,
                            int *rank, hg_addr_t *addr)
 {
     int srcrep, destrep;
+    int ndest;
     nexus_map_t::iterator it;
 
-#if 0
     /* If we are the dest, stop here */
     if (nctx->grank == dest)
         return NX_DONE;
 
     /* If dest is local, return its address */
     if (nexus_is_local(nctx, dest)) {
-        *addr = nexus_get_addr(nctx, dest);
+        *addr = nexus_get_addr(nctx->laddrs, dest);
 
         if (rank)
             *rank = dest;
@@ -78,15 +73,26 @@ nexus_ret_t nexus_next_hop(nexus_ctx_t *nctx, int dest,
         return NX_ISLOCAL;
     }
 
-    /* Find src and dest representatives */
-    srcrep = nctx->localranks[(dest % nctx->lsize)];
-    destrep = nctx->rankreps[dest];
+    /*
+     * To find src rep get node ID for destination, modulo with
+     * lsize to get lrank, and then convert local to global rank
+     */
+    ndest = nctx->rank2node[dest];
+    srcrep = nctx->local2global[(ndest % nctx->lsize)];
+    /*
+     * To find dest rep get node ID for destination, and look it
+     * up in node2rep
+     */
+    destrep = nctx->node2rep[ndest];
+#ifdef NEXUS_DEBUG
+    fprintf(stdout, "[%d] nexus_next_hop: ndest=%d, srcrep=%d, destrep=%d\n",
+            nctx->grank, ndest, srcrep, destrep);
+#endif
 
     /* If we are neither the srcrep or destrep, we are the src */
-    if ((nctx->grank != srcrep) &&
-        (nctx->grank != destrep)) {
+    if ((nctx->grank != srcrep) && (nctx->grank != destrep)) {
         /* Find the srcrep address and return it */
-        *addr = nexus_get_addr(nctx, srcrep);
+        *addr = nexus_get_addr(nctx->laddrs, srcrep);
         if (*addr == HG_ADDR_NULL)
             return NX_NOTFOUND;
 
@@ -98,7 +104,7 @@ nexus_ret_t nexus_next_hop(nexus_ctx_t *nctx, int dest,
 
     /* If we are the srcrep, find destrep address and return it */
     if (nctx->grank == srcrep) {
-        *addr = nexus_get_addr(nctx, destrep);
+        *addr = nexus_get_addr(nctx->gaddrs, destrep);
         if (*addr == HG_ADDR_NULL)
             return NX_NOTFOUND;
 
@@ -110,7 +116,7 @@ nexus_ret_t nexus_next_hop(nexus_ctx_t *nctx, int dest,
 
     /* If we are the destrep, find the dest address */
     if (nctx->grank == destrep) {
-        *addr = nexus_get_addr(nctx, dest);
+        *addr = nexus_get_addr(nctx->gaddrs, dest);
         if (*addr == HG_ADDR_NULL)
             return NX_NOTFOUND;
 
@@ -121,6 +127,4 @@ nexus_ret_t nexus_next_hop(nexus_ctx_t *nctx, int dest,
     }
 
     return NX_INVAL;
-#endif
-    return NX_SUCCESS;
 }
