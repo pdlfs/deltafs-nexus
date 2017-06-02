@@ -29,6 +29,7 @@ struct nexus_ctx
     int lsize;                  /* number of local ranks */
     int lroot;                  /* global rank of local root */
 
+    int *local2global;          /* local rank -> global rank */
     int *rank2node;             /* rank -> node ID */
     nexus_map_t laddrs;         /* map of local rank -> Hg address */
     nexus_map_t gaddrs;         /* map of remote rank -> Hg address */

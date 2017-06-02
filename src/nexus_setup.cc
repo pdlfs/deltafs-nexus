@@ -339,11 +339,16 @@ static void discover_local_info(nexus_ctx_t *nctx)
     if (!xarray)
         msg_abort("malloc failed");
 
+    nctx->local2global = (int *)malloc(sizeof(int) * nctx->lsize);
+    if (!nctx->local2global)
+        msg_abort("malloc failed");
+
     MPI_Allgather(&xitem, sizeof(xchg_dat_t), MPI_BYTE,
                   xarray, sizeof(xchg_dat_t), MPI_BYTE, nctx->localcomm);
 
-    /* Tease out the local root for rep comm construction */
+    /* Build map of local to global ranks, find local root */
     for (int i = 0; i < nctx->lsize; i++) {
+        nctx->local2global[xarray[i].lrank] = xarray[i].grank;
         if (xarray[i].lrank == 0) {
             nctx->lroot = xarray[i].grank;
             break;
@@ -642,6 +647,7 @@ nexus_ret_t nexus_destroy(nexus_ctx_t *nctx)
     if (!nctx->grank)
         fprintf(stdout, "Nexus: done remote info cleanup\n");
 
+    free(nctx->local2global);
     free(nctx->rank2node);
     MPI_Comm_free(&nctx->repcomm);
     return NX_SUCCESS;
