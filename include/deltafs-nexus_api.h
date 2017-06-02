@@ -27,7 +27,6 @@ struct nexus_ctx
     int lsize;                      /* number of local ranks */
     int lroot;                      /* global rank of local root */
 
-    //int *localranks;                /* local -> global ranks */
     int *rank2node;                 /* rank -> node ID */
     std::map<int,hg_addr_t> laddrs; /* map of local rank -> Hg address */
     std::map<int,hg_addr_t> gaddrs; /* map of remote rank -> Hg address */

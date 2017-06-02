@@ -37,15 +37,10 @@
 #include "nexus_internal.h"
 
 typedef struct {
-    char addr[32];
+    char addr[HGADDRSZ];
     int grank;
     int lrank;
 } xchg_dat_t;
-
-typedef struct {
-    int nodesz;
-    char **addr;
-} xchg_nlists_t;
 
 typedef struct {
     hg_context_t *hgctx;
@@ -191,6 +186,9 @@ typedef struct hg_lookup_out {
     nexus_ctx_t *nctx;
     int grank;
 
+    /* The address map we'll be updating */
+    std::map<int,hg_addr_t> *addrmap;
+
     /* State to track progress */
     int *count;
     pthread_mutex_t *cb_mutex;
@@ -207,9 +205,9 @@ static hg_return_t hg_lookup_cb(const struct hg_cb_info *info)
 
     /* Add address to map */
     if (out->hret != HG_SUCCESS)
-        nctx->laddrs[out->grank] = HG_ADDR_NULL;
+        (*(out->addrmap))[out->grank] = HG_ADDR_NULL;
     else
-        nctx->laddrs[out->grank] = info->info.lookup.addr;
+        (*(out->addrmap))[out->grank] = info->info.lookup.addr;
 
     *(out->count) += 1;
     pthread_cond_signal(out->cb_cv);
@@ -219,7 +217,8 @@ static hg_return_t hg_lookup_cb(const struct hg_cb_info *info)
 }
 
 static hg_return_t lookup_hgaddrs(nexus_ctx_t *nctx, hg_context_t *hgctx,
-                                  xchg_dat_t *xarray, int xsize)
+                                  xchg_dat_t *xarray, int xsize,
+                                  std::map<int,hg_addr_t> *addrmap)
 {
     hg_lookup_out_t *out = NULL;
     hg_return_t hret;
@@ -242,7 +241,9 @@ static hg_return_t lookup_hgaddrs(nexus_ctx_t *nctx, hg_context_t *hgctx,
         int eff_i = (nctx->grank + i) % xsize;
 
         /* Populate out struct */
+        out[eff_i].hret = HG_SUCCESS;
         out[eff_i].nctx = nctx;
+        out[eff_i].addrmap = addrmap;
         out[eff_i].grank = xarray[eff_i].grank;
         out[eff_i].count = &count;
         out[eff_i].cb_mutex = &cb_mutex;
@@ -269,7 +270,7 @@ static hg_return_t lookup_hgaddrs(nexus_ctx_t *nctx, hg_context_t *hgctx,
 
     /* Lookup posted, wait until finished */
 again:
-    if (xsize > 1) {
+    if (count < xsize || xsize > 1) {
         pthread_cond_wait(&cb_cv, &cb_mutex);
         if (count < xsize)
             goto again;
@@ -284,10 +285,6 @@ again:
         }
     }
 
-#ifdef NEXUS_DEBUG
-    print_addrs(nctx, nctx->local_hgcl, nctx->laddrs);
-#endif
-
 err:
     pthread_cond_destroy(&cb_cv);
     pthread_mutex_destroy(&cb_mutex);
@@ -298,7 +295,7 @@ err:
 static void discover_local_info(nexus_ctx_t *nctx)
 {
     int ret;
-    char hgaddr[32];
+    char hgaddr[HGADDRSZ];
     xchg_dat_t xitem;
     xchg_dat_t *xarray;
     hg_return_t hret;
@@ -356,8 +353,12 @@ static void discover_local_info(nexus_ctx_t *nctx)
 
     /* Look up local Mercury addresses */
     if (lookup_hgaddrs(nctx, nctx->local_hgctx, xarray,
-                       nctx->lsize) != HG_SUCCESS)
+                       nctx->lsize, &nctx->laddrs) != HG_SUCCESS)
         msg_abort("lookup_hgaddrs failed");
+
+#ifdef NEXUS_DEBUG
+    print_addrs(nctx, nctx->local_hgcl, nctx->laddrs);
+#endif
 
     /* Sync before terminating background threads */
     MPI_Barrier(nctx->localcomm);
@@ -370,24 +371,44 @@ static void discover_local_info(nexus_ctx_t *nctx)
     free(xarray);
 }
 
-#define BMIADDRSZ   32
+#define NADDR(x, y) (&x[y * HGADDRSZ])
 
-static void build_nodelists(nexus_ctx_t *nctx)
+static void find_remote_addrs(nexus_ctx_t *nctx, char *myaddr)
 {
-    int i, maxnodesz;
+    int i, npeers, maxnodesz, maxpeers;
     int *msgdata, *nodelists;
+    char *rank2addr;
+    xchg_dat_t *paddrs;
+
+    /* If we're alone stop here */
+    if (nctx->nodesz == 1)
+        return;
 
     /*
      * To find our peer on each node, we need to construct a list of ranks per
      * node. This is tricky with collectives if we want to support heterogeneous
-     * nodes. We do this in four steps:
+     * nodes. We do this in five steps:
+     * - we all-gather a rank => address array
      * - find max number of ranks per node, M
      * - local roots construct (M+1)-sized array of (# ranks, r0, r1, ...)
      * - local roots all-gather (M+1)-sized arrays (on repcomm)
      * - local roots broadcast finished array (on localcomm)
      */
 
-    /* Step 1: find max number of ranks per node */
+    /* Step 1: build rank => address array */
+    rank2addr = (char *)malloc(sizeof(char) * nctx->gsize * HGADDRSZ);
+    if (!rank2addr)
+        msg_abort("malloc failed");
+
+    MPI_Allgather(myaddr, HGADDRSZ, MPI_BYTE,
+                  rank2addr, HGADDRSZ, MPI_BYTE, MPI_COMM_WORLD);
+#ifdef NEXUS_DEBUG
+    for (i = 0; i < nctx->gsize; i++)
+        fprintf(stdout, "[%d] i = %d, data = %s\n",
+                nctx->grank, i, NADDR(rank2addr, i));
+#endif
+
+    /* Step 2: find max number of ranks per node */
     MPI_Allreduce(&nctx->lsize, &maxnodesz, 1, MPI_INT,
                   MPI_MAX, MPI_COMM_WORLD);
 
@@ -398,7 +419,7 @@ static void build_nodelists(nexus_ctx_t *nctx)
     if (nctx->grank != nctx->lroot)
         goto nonroot;
 
-    /* Step 2: construct local node list */
+    /* Step 3: construct local node list */
     msgdata = (int *)malloc(sizeof(int) * (maxnodesz+1));
     if (!msgdata)
         msg_abort("malloc failed");
@@ -410,35 +431,97 @@ static void build_nodelists(nexus_ctx_t *nctx)
             it != nctx->laddrs.end(); it++)
         msgdata[i++] = it->first;
 
-    /* Step 3: exchange local node lists */
+    /* Step 4: exchange local node lists */
     MPI_Allgather(msgdata, maxnodesz + 1, MPI_INT,
                   nodelists, maxnodesz + 1, MPI_INT, nctx->repcomm);
 
     free(msgdata);
 nonroot:
-    /* Step 4: broadcast finished node lists array */
+    /* Step 5: broadcast finished node lists array */
     MPI_Bcast(nodelists, (maxnodesz+1) * nctx->nodesz * sizeof(int),
               MPI_BYTE, 0, nctx->localcomm);
-
 #ifdef NEXUS_DEBUG
-    for (int i = 0; i < ((maxnodesz+1) * nctx->nodesz); i++)
+    for (i = 0; i < ((maxnodesz+1) * nctx->nodesz); i++)
         fprintf(stdout, "[%d] i = %d, data = %d\n",
                 nctx->grank, i, nodelists[i]);
 #endif
 
+    /*
+     * Time to construct an array of peer addresses. We'll do this in two steps:
+     * - find total number of peers, which is ceil(# nodes / # local ranks)
+     * - construct array of peer addresses and look them all up
+     */
+
+    /* Step 1: find total number of peers */
+    maxpeers = (nctx->nodesz / nctx->lsize) +
+               ((nctx->nodesz % nctx->lsize) ? 1 : 0);
+
+    paddrs = (xchg_dat_t *)malloc(sizeof(xchg_dat_t) * maxpeers);
+    if (!paddrs)
+        msg_abort("malloc failed");
+
+    /*
+     * We will communicate with a node, if its node ID modulo our node's rank
+     * size is equal to our local-rank. Of each node we communicate with, we
+     * will msg the remote local-rank that is equal to our node's ID modulo
+     * the remote node's rank size.
+     */
+    i = nctx->lrank;
+    npeers = 0;
+    while (i < nctx->nodesz) {
+        int idx = i * (maxnodesz + 1);
+        int remote_grank, remote_lsize;
+        char *remote_addr;
+
+        /* Skip ourselves */
+        if (i == nctx->nodeid) {
+            i += nctx->lsize;
+            continue;
+        }
+
+        remote_lsize = nodelists[idx];
+        remote_grank = nodelists[idx + 1 + (nctx->nodeid % remote_lsize)];
+        remote_addr = NADDR(rank2addr, remote_grank);
+
+        strncpy(paddrs[npeers].addr, remote_addr, HGADDRSZ);
+        paddrs[npeers].grank = remote_grank;
+
+        i += nctx->lsize;
+        npeers += 1;
+    }
+
+    /* Get rid of arrays we don't need anymore */
+    free(rank2addr);
     free(nodelists);
+
+    /* No peers? Stop here. */
+    if (!npeers) {
+        free(paddrs);
+        return;
+    }
+
+#ifdef NEXUS_DEBUG
+    for (i = 0; i < npeers; i++)
+        fprintf(stdout, "[%d] i = %d, grank = %d, addr = %s\n",
+                nctx->grank, i, paddrs[i].grank, paddrs[i].addr);
+#endif
+
+    /* Step 2: lookup peer addresses */
+    if (lookup_hgaddrs(nctx, nctx->remote_hgctx, paddrs,
+                       npeers, &nctx->gaddrs) != HG_SUCCESS)
+        msg_abort("lookup_hgaddrs failed");
+
+#ifdef NEXUS_DEBUG
+    print_addrs(nctx, nctx->remote_hgcl, nctx->gaddrs);
+    fprintf(stdout, "[%d] printed gaddrs, npeers = %d\n", nctx->grank, npeers);
+#endif
+
+    free(paddrs);
 }
 
 static void discover_remote_info(nexus_ctx_t *nctx, char *hgaddr)
 {
     int ret;
-#if 0
-    hg_return_t hret;
-    rdata_t rdat;
-    rdata_t *hginfo;
-    int *repgranks;
-    hg_addr_t *repaddrs;
-#endif
     pthread_t bgthread; /* network background thread */
     bgthread_dat_t *bgarg;
 
@@ -480,85 +563,22 @@ static void discover_remote_info(nexus_ctx_t *nctx, char *hgaddr)
     if (ret != 0)
         msg_abort("pthread_create failed");
 
-    build_nodelists(nctx);
-
-#if 0
-    /* Local roots exchange address and global rank of dest reps */
-    strncpy(rdat.addr, hgaddr, sizeof(rdat.addr));
-    rdat.addr[60] = '\0';
-    rdat.grank = nctx->grank;
-
-    hginfo = (rdata_t *)malloc(sizeof(rdata_t) * rep_size);
-    if (!hginfo)
-        msg_abort("malloc failed");
-
-    MPI_Allgather(&rdat, sizeof(rdata_t), MPI_BYTE, hginfo,
-                  sizeof(rdata_t), MPI_BYTE, nctx->repcomm);
-
-    for (int i = 0; i < rep_size; i++) {
-        int eff_i = (rep_rank + i) % rep_size;
-        hg_addr_t remoteaddr;
-
-#ifdef NEXUS_DEBUG
-        fprintf(stdout, "[%d] eff_i = %d, addr = %s, grank = %d\n",
-                i, eff_i, hginfo[eff_i].addr, hginfo[eff_i].grank);
-#endif
-
-        if (hginfo[eff_i].grank == nctx->grank) {
-            hret = HG_Addr_self(nctx->remote_hgcl, &remoteaddr);
-        } else {
-            hret = hg_lookup(nctx, nctx->remote_hgctx, hginfo[eff_i].addr,
-                             &remoteaddr);
-        }
-
-        if (hret != HG_SUCCESS) {
-            fprintf(stderr, "Tried to lookup %s\n", hginfo[eff_i].addr);
-            msg_abort("hg_lookup failed");
-        }
-
-        /* Add to remote map */
-        nctx->gaddrs[hginfo[eff_i].grank] = remoteaddr;
-
-        /* Add to bcast arrays */
-        repaddrs[i] = remoteaddr;
-        repgranks[i] = hginfo[eff_i].grank;
-    }
+    find_remote_addrs(nctx, hgaddr);
 
     /* Sync before terminating background threads */
-    MPI_Barrier(nctx->repcomm);
-#endif
+    MPI_Barrier(MPI_COMM_WORLD);
 
     /* Terminate network thread */
     bgarg->bgdone = 1;
     pthread_join(bgthread, NULL);
 
     free(bgarg);
-#if 0
-    free(hginfo);
-
-nonroot:
-    /* Broadcast local root array to all local non-root ranks */
-    MPI_Bcast(repaddrs, rep_size * sizeof(hg_addr_t), MPI_BYTE, 0,
-              nctx->localcomm);
-    MPI_Bcast(repgranks, rep_size * sizeof(int), MPI_BYTE, 0,
-              nctx->localcomm);
-
-    if (nctx->grank == nctx->lroot)
-        goto done;
-
-    for (int i = 0; i < rep_size; i++)
-        nctx->gaddrs[repgranks[i]] = repaddrs[i];
-
-done:
-    free(repgranks);
-    free(repaddrs);
-#endif
 }
 
 nexus_ret_t nexus_bootstrap(nexus_ctx_t *nctx, int minport, int maxport,
                             char *subnet, char *proto)
 {
-    char hgaddr[32];
+    char hgaddr[HGADDRSZ];
 
     /* Grab MPI rank info */
     MPI_Comm_rank(MPI_COMM_WORLD, &(nctx->grank));

@@ -18,6 +18,7 @@
 
 #include "deltafs-nexus_api.h"
 
+#define HGADDRSZ    32
 //#define NEXUS_DEBUG
 
 /*
