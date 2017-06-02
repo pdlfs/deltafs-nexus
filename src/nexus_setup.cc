@@ -450,6 +450,14 @@ nonroot:
                 nctx->grank, i, nodelists[i]);
 #endif
 
+    /* Build the node -> size array while we're at it */
+    nctx->node2size = (int *)malloc(sizeof(int) * nctx->nodesz);
+    if (!nctx->node2size)
+        msg_abort("malloc failed");
+
+    for (i = 0; i < nctx->nodesz; i++)
+        nctx->node2size[i] = nodelists[i * (maxnodesz + 1)];
+
     /*
      * Time to construct an array of peer addresses. We'll do this in two steps:
      * - find total number of peers, which is ceil(# nodes / # local ranks)
@@ -647,6 +655,7 @@ nexus_ret_t nexus_destroy(nexus_ctx_t *nctx)
     if (!nctx->grank)
         fprintf(stdout, "Nexus: done remote info cleanup\n");
 
+    free(nctx->node2size);
     free(nctx->local2global);
     free(nctx->rank2node);
     MPI_Comm_free(&nctx->repcomm);
