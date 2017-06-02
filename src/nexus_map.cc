@@ -32,7 +32,7 @@
 
 static bool nexus_is_local(nexus_ctx_t *nctx, int rank)
 {
-    std::map<int,hg_addr_t>::iterator it;
+    nexus_map_t::iterator it;
 
     it = nctx->laddrs.find(rank);
     if (it != nctx->laddrs.end())
@@ -43,7 +43,7 @@ static bool nexus_is_local(nexus_ctx_t *nctx, int rank)
 
 static hg_addr_t nexus_get_addr(nexus_ctx_t *nctx, int rank)
 {
-    std::map<int,hg_addr_t>::iterator it;
+    nexus_map_t::iterator it;
 
     /* Prefer local addresses when possible */
     it = nctx->laddrs.find(rank);
@@ -61,7 +61,7 @@ nexus_ret_t nexus_next_hop(nexus_ctx_t *nctx, int dest,
                            int *rank, hg_addr_t *addr)
 {
     int srcrep, destrep;
-    std::map<int,hg_addr_t>::iterator it;
+    nexus_map_t::iterator it;
 
 #if 0
     /* If we are the dest, stop here */

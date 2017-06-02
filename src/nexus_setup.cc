@@ -187,7 +187,7 @@ typedef struct hg_lookup_out {
     int grank;
 
     /* The address map we'll be updating */
-    std::map<int,hg_addr_t> *addrmap;
+    nexus_map_t *map;
 
     /* State to track progress */
     int *count;
@@ -205,9 +205,9 @@ static hg_return_t hg_lookup_cb(const struct hg_cb_info *info)
 
     /* Add address to map */
     if (out->hret != HG_SUCCESS)
-        (*(out->addrmap))[out->grank] = HG_ADDR_NULL;
+        (*(out->map))[out->grank] = HG_ADDR_NULL;
     else
-        (*(out->addrmap))[out->grank] = info->info.lookup.addr;
+        (*(out->map))[out->grank] = info->info.lookup.addr;
 
     *(out->count) += 1;
     pthread_cond_signal(out->cb_cv);
@@ -216,9 +216,8 @@ static hg_return_t hg_lookup_cb(const struct hg_cb_info *info)
     return HG_SUCCESS;
 }
 
-static hg_return_t lookup_hgaddrs(nexus_ctx_t *nctx, hg_context_t *hgctx,
-                                  xchg_dat_t *xarray, int xsize,
-                                  std::map<int,hg_addr_t> *addrmap)
+static hg_return_t lookup_addrs(nexus_ctx_t *nctx, hg_context_t *hgctx,
+                                xchg_dat_t *xarray, int xsize, nexus_map_t *map)
 {
     hg_lookup_out_t *out = NULL;
     hg_return_t hret;
@@ -243,7 +242,7 @@ static hg_return_t lookup_hgaddrs(nexus_ctx_t *nctx, hg_context_t *hgctx,
         /* Populate out struct */
         out[eff_i].hret = HG_SUCCESS;
         out[eff_i].nctx = nctx;
-        out[eff_i].addrmap = addrmap;
+        out[eff_i].map = map;
         out[eff_i].grank = xarray[eff_i].grank;
         out[eff_i].count = &count;
         out[eff_i].cb_mutex = &cb_mutex;
@@ -352,9 +351,9 @@ static void discover_local_info(nexus_ctx_t *nctx)
     }
 
     /* Look up local Mercury addresses */
-    if (lookup_hgaddrs(nctx, nctx->local_hgctx, xarray,
-                       nctx->lsize, &nctx->laddrs) != HG_SUCCESS)
-        msg_abort("lookup_hgaddrs failed");
+    if (lookup_addrs(nctx, nctx->local_hgctx, xarray,
+                     nctx->lsize, &nctx->laddrs) != HG_SUCCESS)
+        msg_abort("lookup_addrs failed");
 
 #ifdef NEXUS_DEBUG
     print_addrs(nctx, nctx->local_hgcl, nctx->laddrs);
@@ -427,8 +426,8 @@ static void find_remote_addrs(nexus_ctx_t *nctx, char *myaddr)
     i = 2;
     msgdata[0] = nctx->lsize;
     msgdata[1] = nctx->grank;
-    for (std::map<int,hg_addr_t>::iterator it = nctx->laddrs.begin();
-            it != nctx->laddrs.end(); it++)
+    for (nexus_map_t::iterator it = nctx->laddrs.begin();
+                               it != nctx->laddrs.end(); it++)
         msgdata[i++] = it->first;
 
     /* Step 4: exchange local node lists */
@@ -507,9 +506,9 @@ nonroot:
 #endif
 
     /* Step 2: lookup peer addresses */
-    if (lookup_hgaddrs(nctx, nctx->remote_hgctx, paddrs,
-                       npeers, &nctx->gaddrs) != HG_SUCCESS)
-        msg_abort("lookup_hgaddrs failed");
+    if (lookup_addrs(nctx, nctx->remote_hgctx, paddrs,
+                     npeers, &nctx->gaddrs) != HG_SUCCESS)
+        msg_abort("lookup_addrs failed");
 
 #ifdef NEXUS_DEBUG
     print_addrs(nctx, nctx->remote_hgcl, nctx->gaddrs);
@@ -610,7 +609,7 @@ nexus_ret_t nexus_bootstrap(nexus_ctx_t *nctx, int minport, int maxport,
 
 nexus_ret_t nexus_destroy(nexus_ctx_t *nctx)
 {
-    std::map<int, hg_addr_t>::iterator it;
+    nexus_map_t::iterator it;
 
     /* Free local Mercury addresses */
     for (it = nctx->laddrs.begin(); it != nctx->laddrs.end(); it++)
@@ -633,10 +632,8 @@ nexus_ret_t nexus_destroy(nexus_ctx_t *nctx)
         if (it->second != HG_ADDR_NULL)
             HG_Addr_free(nctx->remote_hgcl, it->second);
 
-#if 0
     /* Sync before tearing down remote endpoints */
-    MPI_Barrier(nctx->repcomm);
-#endif
+    MPI_Barrier(MPI_COMM_WORLD);
 
     /* Destroy Mercury remote endpoints */
     HG_Context_destroy(nctx->remote_hgctx);
@@ -645,9 +642,6 @@ nexus_ret_t nexus_destroy(nexus_ctx_t *nctx)
     if (!nctx->grank)
         fprintf(stdout, "Nexus: done remote info cleanup\n");
 
-#if 0
-    free(nctx->localranks);
-#endif
     free(nctx->rank2node);
     MPI_Comm_free(&nctx->repcomm);
     return NX_SUCCESS;

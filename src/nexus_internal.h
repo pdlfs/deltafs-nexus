@@ -35,15 +35,14 @@ static inline void msg_abort(const char* msg)
     abort();
 }
 
-static void print_addrs(nexus_ctx_t *nctx, hg_class_t *hgcl,
-                        std::map<int,hg_addr_t> addrmap)
+static void print_addrs(nexus_ctx_t *nctx, hg_class_t *hgcl, nexus_map_t map)
 {
-    std::map<int,hg_addr_t>::iterator it;
+    nexus_map_t::iterator it;
     char *addr_str = NULL;
     hg_size_t addr_size = 0;
     hg_return_t hret;
 
-    for (it = addrmap.begin(); it != addrmap.end(); it++) {
+    for (it = map.begin(); it != map.end(); it++) {
         hret = HG_Addr_to_string(hgcl, NULL, &addr_size, it->second);
         if (hret != HG_SUCCESS)
             msg_abort("HG_Addr_to_string failed");
