@@ -293,7 +293,7 @@ static void discover_local_info(nexus_ctx_t *nctx)
     xchg_dat_t *xarray;
     hg_return_t hret;
     pthread_t bgthread; /* network background thread */
-    bgthread_dat_t *bgarg;
+    bgthread_dat_t bgarg;
 
     MPI_Comm_rank(nctx->localcomm, &(nctx->lrank));
     MPI_Comm_size(nctx->localcomm, &(nctx->lsize));
@@ -313,14 +313,10 @@ static void discover_local_info(nexus_ctx_t *nctx)
         msg_abort("HG_Context_create failed for local endpoint");
 
     /* Start the network thread */
-    bgarg = (bgthread_dat_t *)malloc(sizeof(*bgarg));
-    if (!bgarg)
-        msg_abort("malloc failed");
+    bgarg.hgctx = nctx->local_hgctx;
+    bgarg.bgdone = 0;
 
-    bgarg->hgctx = nctx->local_hgctx;
-    bgarg->bgdone = 0;
-
-    ret = pthread_create(&bgthread, NULL, nexus_bgthread, (void*)bgarg);
+    ret = pthread_create(&bgthread, NULL, nexus_bgthread, (void*)&bgarg);
     if (ret != 0)
         msg_abort("pthread_create failed");
 
@@ -362,10 +358,8 @@ static void discover_local_info(nexus_ctx_t *nctx)
     MPI_Barrier(nctx->localcomm);
 
     /* Terminate network thread */
-    bgarg->bgdone = 1;
+    bgarg.bgdone = 1;
     pthread_join(bgthread, NULL);
-
-    free(bgarg);
     free(xarray);
 }
 
@@ -531,7 +525,7 @@ static void discover_remote_info(nexus_ctx_t *nctx, char *hgaddr)
 {
     int ret;
     pthread_t bgthread; /* network background thread */
-    bgthread_dat_t *bgarg;
+    bgthread_dat_t bgarg;
 
     /* Find node IDs, number of nodes and broadcast them */
     if (nctx->grank == nctx->lroot) {
@@ -560,14 +554,10 @@ static void discover_remote_info(nexus_ctx_t *nctx, char *hgaddr)
         msg_abort("HG_Context_create failed for remote endpoint");
 
     /* Start the network thread */
-    bgarg = (bgthread_dat_t *)malloc(sizeof(*bgarg));
-    if (!bgarg)
-        msg_abort("malloc failed");
+    bgarg.hgctx = nctx->remote_hgctx;
+    bgarg.bgdone = 0;
 
-    bgarg->hgctx = nctx->remote_hgctx;
-    bgarg->bgdone = 0;
-
-    ret = pthread_create(&bgthread, NULL, nexus_bgthread, (void*)bgarg);
+    ret = pthread_create(&bgthread, NULL, nexus_bgthread, (void*)&bgarg);
     if (ret != 0)
         msg_abort("pthread_create failed");
 
@@ -577,10 +567,8 @@ static void discover_remote_info(nexus_ctx_t *nctx, char *hgaddr)
     MPI_Barrier(MPI_COMM_WORLD);
 
     /* Terminate network thread */
-    bgarg->bgdone = 1;
+    bgarg.bgdone = 1;
     pthread_join(bgthread, NULL);
-
-    free(bgarg);
 }
 
 nexus_ret_t nexus_bootstrap(nexus_ctx_t *nctx, int minport, int maxport,
