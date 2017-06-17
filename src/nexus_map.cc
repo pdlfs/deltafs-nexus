@@ -87,41 +87,21 @@ nexus_ret_t nexus_next_hop(nexus_ctx_t *nctx, int dest,
             nctx->grank, ndest, srcrep, destrep);
 #endif
 
-    /* If we are neither the srcrep or destrep, we are the src */
-    if ((nctx->grank != srcrep) && (nctx->grank != destrep)) {
-        /* Find the srcrep address and return it */
+    /* Are we the src or the srcrep? */
+    if (nctx->grank != srcrep) {
+        /* We are the src. Find srcrep address and return it */
         *addr = nexus_get_addr(nctx->laddrs, srcrep);
-        if (*addr == HG_ADDR_NULL)
-            return NX_NOTFOUND;
-
-        if (rank)
-            *rank = srcrep;
+        if (*addr == HG_ADDR_NULL) return NX_NOTFOUND;
+        if (rank) *rank = srcrep;
 
         return NX_SRCREP;
-    }
-
-    /* If we are the srcrep, find destrep address and return it */
-    if (nctx->grank == srcrep) {
+    } else {
+        /* We are the srcrep. Find destrep address and return it */
         *addr = nexus_get_addr(nctx->gaddrs, destrep);
-        if (*addr == HG_ADDR_NULL)
-            return NX_NOTFOUND;
-
-        if (rank)
-            *rank = destrep;
+        if (*addr == HG_ADDR_NULL) return NX_NOTFOUND;
+        if (rank) *rank = destrep;
 
         return NX_DESTREP;
-    }
-
-    /* If we are the destrep, find the dest address */
-    if (nctx->grank == destrep) {
-        *addr = nexus_get_addr(nctx->gaddrs, dest);
-        if (*addr == HG_ADDR_NULL)
-            return NX_NOTFOUND;
-
-        if (rank)
-            *rank = dest;
-
-        return NX_SUCCESS;
     }
 
     return NX_INVAL;
