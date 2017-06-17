@@ -49,6 +49,7 @@ struct nexus_ctx
 
 typedef struct nexus_ctx nexus_ctx_t;
 
+/* error codes */
 typedef enum {
     NX_SUCCESS = 0, /* operation succeeded */
     NX_ERROR,       /* operation resulted in error */
@@ -60,19 +61,32 @@ typedef enum {
     NX_DONE,        /* already at destination */
 } nexus_ret_t;
 
-/*
- * Bootstraps the Nexus library
+/**
+ * nexus_bootstrap: bootstraps the Nexus library
+ * @param nexus context (to be initialized)
+ * @param minimum port for initialized Mercury endpoints
+ * @param maximum port for initialized Mercury endpoints
+ * @param string of the network subnet to be preferred for Mercury endpoints
+ * @param string of the Mercury protocol plugin to be preferred
+ * @return NX_SUCCESS or an error code
  */
 nexus_ret_t nexus_bootstrap(nexus_ctx_t *nctx, int minport, int maxport,
                             char *subnet, char *proto);
 
-/*
+/**
  * Destroys the Nexus library freeing all allocated resources
+ * @param nexus context
+ * @return NX_SUCCESS or an error code
  */
 nexus_ret_t nexus_destroy(nexus_ctx_t *nctx);
 
-/*
+/**
  * Returns next Mercury address in route to dest or error
+ * @param nexus context
+ * @param MPI rank of destination
+ * @param MPI rank of next hop (returned iff address is not NULL)
+ * @param Mercury address of next hop (returned)
+ * @return NX_SUCCESS or an error code
  */
 nexus_ret_t nexus_next_hop(nexus_ctx_t *nctx, int dest,
                            int *rank, hg_addr_t *addr);
