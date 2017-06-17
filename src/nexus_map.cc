@@ -30,13 +30,15 @@
 
 #include "nexus_internal.h"
 
-static bool nexus_is_local(nexus_ctx_t *nctx, int rank)
+static bool nexus_is_local(nexus_ctx_t *nctx, int rank, hg_addr_t *addr)
 {
     nexus_map_t::iterator it;
 
     it = nctx->laddrs.find(rank);
-    if (it != nctx->laddrs.end())
+    if (it != nctx->laddrs.end()) {
+        *addr = it->second;
         return true;
+    }
 
     return false;
 }
@@ -64,12 +66,8 @@ nexus_ret_t nexus_next_hop(nexus_ctx_t *nctx, int dest,
         return NX_DONE;
 
     /* If dest is local, return its address */
-    if (nexus_is_local(nctx, dest)) {
-        *addr = nexus_get_addr(nctx->laddrs, dest);
-
-        if (rank)
-            *rank = dest;
-
+    if (nexus_is_local(nctx, dest, addr)) {
+        if (rank) *rank = dest;
         return NX_ISLOCAL;
     }
 
