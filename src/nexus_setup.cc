@@ -87,7 +87,7 @@ static void prepare_addr(nexus_ctx_t *nctx, int minport, int maxport,
                          char *subnet, char *proto, char *uri)
 {
     struct ifaddrs *ifaddr, *cur;
-    int family, ret, rank, size, port;
+    int family, ret, port;
     char ip[16];
 
     /* Query local socket layer to get our IP addr */
@@ -122,10 +122,8 @@ static void prepare_addr(nexus_ctx_t *nctx, int minport, int maxport,
     if (maxport > 65535)
         msg_abort("bad max port");
 
-    MPI_Comm_rank(nctx->localcomm, &rank);
-    MPI_Comm_size(nctx->localcomm, &size);
-    port = minport + (rank % (1 + maxport - minport));
-    for (; port <= maxport; port += size) {
+    port = minport + (nctx->lrank % (1 + maxport - minport));
+    for (; port <= maxport; port += nctx->lsize) {
         int so, n = 1;
         struct sockaddr_in addr;
 
