@@ -28,14 +28,11 @@ typedef enum {
 
 /**
  * nexus_bootstrap: bootstraps the Nexus library
- * @param minimum port for initialized Mercury endpoints
- * @param maximum port for initialized Mercury endpoints
  * @param string of the network subnet to be preferred for Mercury endpoints
  * @param string of the Mercury protocol plugin to be preferred
  * @return nexus context or NULL on error
  */
-nexus_ctx_t nexus_bootstrap(int minport, int maxport,
-                            char *subnet, char *proto);
+nexus_ctx_t nexus_bootstrap(char *subnet, char *proto);
 
 /**
  * Destroys the Nexus library freeing all allocated resources

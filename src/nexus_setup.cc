@@ -83,12 +83,14 @@ static void *nexus_bgthread(void *arg)
  * Put together the remote Mercury endpoint address from bootstrap parameters.
  * Writes the server URI into *uri on success. Aborts on error.
  */
-static void prepare_addr(nexus_ctx_t nctx, int minport, int maxport,
-                         char *subnet, char *proto, char *uri)
+static void prepare_addr(nexus_ctx_t nctx, char *subnet, char *proto, char *uri)
 {
     struct ifaddrs *ifaddr, *cur;
     int family, ret, port;
     char ip[16];
+    int so, n = 1;
+    struct sockaddr_in addr;
+    socklen_t addr_len;
 
     /* Query local socket layer to get our IP addr */
     if (getifaddrs(&ifaddr) == -1)
@@ -114,59 +116,22 @@ static void prepare_addr(nexus_ctx_t nctx, int minport, int maxport,
 
     freeifaddrs(ifaddr);
 
-    /* sanity check on port range */
-    if (maxport - minport < 0)
-        msg_abort("bad min-max port");
-    if (minport < 1)
-        msg_abort("bad min port");
-    if (maxport > 65535)
-        msg_abort("bad max port");
-
-    port = minport + (nctx->lrank % (1 + maxport - minport));
-    for (; port <= maxport; port += nctx->lsize) {
-        int so, n = 1;
-        struct sockaddr_in addr;
-
-        /* test port availability */
-        so = socket(PF_INET, SOCK_STREAM, 0);
-        setsockopt(so, SOL_SOCKET, SO_REUSEADDR, &n, sizeof(n));
-        if (so != -1) {
-            addr.sin_family = AF_INET;
-            addr.sin_addr.s_addr = INADDR_ANY;
-            addr.sin_port = htons(port);
-            n = bind(so, (struct sockaddr*)&addr, sizeof(addr));
-            close(so);
+    port = 0;
+    so = socket(PF_INET, SOCK_STREAM, 0);
+    setsockopt(so, SOL_SOCKET, SO_REUSEADDR, &n, sizeof(n));
+    if (so != -1) {
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = INADDR_ANY;
+        addr.sin_port = htons(0);
+        n = bind(so, (struct sockaddr*)&addr, sizeof(addr));
+        if (n == 0) {
+            n = getsockname(so, (struct sockaddr*)&addr, &addr_len);
             if (n == 0)
-                break; /* done */
-        } else {
-            msg_abort("socket");
+                port = ntohs(addr.sin_port); /* okay */
         }
-    }
-
-    if (port > maxport) {
-        int so, n = 1;
-        struct sockaddr_in addr;
-        socklen_t addr_len;
-
-        port = 0;
-        fprintf(stderr, "Warning: no free ports available within the specified "
-                "range\n>>> auto detecting ports ...\n");
-        so = socket(PF_INET, SOCK_STREAM, 0);
-        setsockopt(so, SOL_SOCKET, SO_REUSEADDR, &n, sizeof(n));
-        if (so != -1) {
-            addr.sin_family = AF_INET;
-            addr.sin_addr.s_addr = INADDR_ANY;
-            addr.sin_port = htons(0);
-            n = bind(so, (struct sockaddr*)&addr, sizeof(addr));
-            if (n == 0) {
-                n = getsockname(so, (struct sockaddr*)&addr, &addr_len);
-                if (n == 0)
-                    port = ntohs(addr.sin_port); /* okay */
-            }
-            close(so);
-        } else {
-            msg_abort("socket");
-        }
+        close(so);
+    } else {
+        msg_abort("socket");
     }
 
     if (port == 0)
@@ -564,8 +529,7 @@ static void discover_remote_info(nexus_ctx_t nctx, char *hgaddr)
     pthread_join(bgthread, NULL);
 }
 
-nexus_ctx_t nexus_bootstrap(int minport, int maxport,
-                            char *subnet, char *proto)
+nexus_ctx_t nexus_bootstrap(char *subnet, char *proto)
 {
     nexus_ctx_t nctx = NULL;
     char hgaddr[HGADDRSZ];
@@ -588,7 +552,7 @@ nexus_ctx_t nexus_bootstrap(int minport, int maxport,
     if (!nctx->grank)
         fprintf(stdout, "Nexus: done local info discovery\n");
 
-    prepare_addr(nctx, minport, maxport, subnet, proto, hgaddr);
+    prepare_addr(nctx, subnet, proto, hgaddr);
     init_rep_comm(nctx);
     discover_remote_info(nctx, hgaddr);
 

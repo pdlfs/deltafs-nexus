@@ -22,8 +22,6 @@ struct test_ctx {
     int ranksize;
 
     int count;
-    int minport;
-    int maxport;
     char subnet[16];
     char proto[8];
 
@@ -105,8 +103,6 @@ int main(int argc, char **argv)
 
     /* set default parameter values */
     tctx.count = 2;
-    tctx.minport = 50000;
-    tctx.maxport = 59999;
 
     if (snprintf(tctx.subnet, sizeof(tctx.subnet), "127.0.0.1") <= 0)
         msg_abort("sprintf for subnet failed");
@@ -114,7 +110,7 @@ int main(int argc, char **argv)
     if (snprintf(tctx.proto, sizeof(tctx.proto), "bmi+tcp") <= 0)
         msg_abort("sprintf for proto failed");
 
-    while ((c = getopt(argc, argv, "c:p:t:s:h")) != -1) {
+    while ((c = getopt(argc, argv, "c:t:s:h")) != -1) {
         switch(c) {
         case 'h': /* print help */
             usage(0);
@@ -124,14 +120,6 @@ int main(int argc, char **argv)
                 perror("Error: invalid RPC count");
                 usage(1);
             }
-            break;
-        case 'p': /* base port number */
-            tctx.minport = strtol(optarg, &end, 10);
-            if (*end) {
-                perror("Error: invalid base port");
-                usage(1);
-            }
-            tctx.maxport = tctx.minport + 9999;
             break;
         case 't': /* transport protocol */
             if (!strncpy(tctx.proto, optarg, sizeof(tctx.proto))) {
@@ -162,13 +150,11 @@ int main(int argc, char **argv)
     if (!tctx.myrank) {
         printf("\n%s options:\n", me);
         printf("\tTrials = %d\n", tctx.count);
-        printf("\tPorts used = %d - %d\n", tctx.minport, tctx.maxport);
         printf("\tSubnet = %s\n", tctx.subnet);
         printf("\tProtocol = %s\n", tctx.proto);
     }
 
-    if (!(tctx.nctx = nexus_bootstrap(tctx.minport, tctx.maxport,
-                                      tctx.subnet, tctx.proto))) {
+    if (!(tctx.nctx = nexus_bootstrap(tctx.subnet, tctx.proto))) {
         fprintf(stderr, "Error: nexus_bootstrap failed\n");
         goto error;
     }
