@@ -182,11 +182,14 @@ static hg_return_t hg_lookup_cb(const struct hg_cb_info *info)
     return HG_SUCCESS;
 }
 
-static hg_return_t lookup_addrs(nexus_ctx_t nctx, hg_context_t *hgctx,
+static hg_return_t lookup_addrs(nexus_ctx_t nctx,
+                                hg_context_t *hgctx, hg_class_t *hgcl,
                                 xchg_dat_t *xarr, int xsize, nexus_map_t *map)
 {
     hg_lookup_out_t *out = NULL;
     hg_return_t hret;
+    hg_addr_t self_addr;
+    int cur_i, eff_size;
 
     lkp.count = 0;
     lkp.map = map;
@@ -200,9 +203,13 @@ static hg_return_t lookup_addrs(nexus_ctx_t nctx, hg_context_t *hgctx,
 
     pthread_mutex_lock(&lkp.cb_mutex);
 
-    /* Post all lookups */
-    for (int i = 0; i < xsize; i++) {
-        int eff_i = (nctx->grank + i) % xsize;
+    cur_i = 0;
+send_again:
+    eff_size = (((xsize - cur_i) < NEXUS_LOOKUP_LIMIT) ?
+                 (xsize - cur_i) : NEXUS_LOOKUP_LIMIT);
+    /* Post a batch of lookups */
+    for (int i = 0; i < eff_size; i++) {
+        int eff_i = ((nctx->grank + i) % eff_size) + cur_i;
         xchg_dat_t *xi = (xchg_dat_t *)(((char *)xarr) +
                          eff_i * (sizeof(*xi) + nctx->laddrsz));
 
@@ -215,22 +222,40 @@ static hg_return_t lookup_addrs(nexus_ctx_t nctx, hg_context_t *hgctx,
                 nctx->grank, eff_i, xi->addr, xi->grank, xsize);
 #endif
 
-        hret = HG_Addr_lookup(hgctx, &hg_lookup_cb, &out[eff_i],
-                              xi->addr, HG_OP_ID_IGNORE);
+        if (out[eff_i].grank != nctx->grank) {
+            hret = HG_Addr_lookup(hgctx, &hg_lookup_cb, &out[eff_i],
+                                  xi->addr, HG_OP_ID_IGNORE);
+        } else {
+            hret = HG_Addr_self(hgcl, &self_addr);
+
+            /* Add address to map */
+            if (hret != HG_SUCCESS)
+                (*(lkp.map))[xi->grank] = HG_ADDR_NULL;
+            else
+                (*(lkp.map))[xi->grank] = self_addr;
+
+            lkp.count += 1;
+        }
+
         if (hret != HG_SUCCESS) {
             pthread_mutex_unlock(&lkp.cb_mutex);
             goto err;
         }
     }
 
+    cur_i += eff_size;
+
     /* Lookup posted, wait until finished */
-again:
-    if (lkp.count < xsize) {
+wait_again:
+    if (lkp.count < cur_i) {
         pthread_cond_wait(&lkp.cb_cv, &lkp.cb_mutex);
-        if (lkp.count < xsize)
-            goto again;
+        if (lkp.count < cur_i)
+            goto wait_again;
     }
     pthread_mutex_unlock(&lkp.cb_mutex);
+
+    if (cur_i < xsize)
+        goto send_again;
 
     hret = HG_SUCCESS;
     for (int i = 0; i < xsize; i++) {
@@ -316,7 +341,7 @@ static void discover_local_info(nexus_ctx_t nctx)
     }
 
     /* Look up local Mercury addresses */
-    if (lookup_addrs(nctx, nctx->local_hgctx, xarr,
+    if (lookup_addrs(nctx, nctx->local_hgctx, nctx->local_hgcl, xarr,
                      nctx->lsize, &nctx->laddrs) != HG_SUCCESS)
         msg_abort("lookup_addrs failed");
 
@@ -482,7 +507,7 @@ nonroot:
 #endif
 
     /* Step 2: lookup peer addresses */
-    if (lookup_addrs(nctx, nctx->remote_hgctx, paddrs,
+    if (lookup_addrs(nctx, nctx->remote_hgctx, nctx->remote_hgcl, paddrs,
                      npeers, &nctx->gaddrs) != HG_SUCCESS)
         msg_abort("lookup_addrs failed");
 
