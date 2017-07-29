@@ -144,17 +144,19 @@ static void prepare_addr(nexus_ctx_t nctx, char *subnet, char *proto, char *uri)
 #endif
 }
 
-typedef struct hg_lookup_out {
-    hg_return_t hret;
-    int grank;
-
+struct hg_lookup_ctx {
     /* The address map we'll be updating */
     nexus_map_t *map;
 
     /* State to track progress */
-    int *count;
-    pthread_mutex_t *cb_mutex;
-    pthread_cond_t *cb_cv;
+    int count;
+    pthread_mutex_t cb_mutex;
+    pthread_cond_t cb_cv;
+} lkp;
+
+typedef struct hg_lookup_out {
+    hg_return_t hret;
+    int grank;
 } hg_lookup_out_t;
 
 static hg_return_t hg_lookup_cb(const struct hg_cb_info *info)
@@ -162,17 +164,17 @@ static hg_return_t hg_lookup_cb(const struct hg_cb_info *info)
     hg_lookup_out_t *out = (hg_lookup_out_t *)info->arg;
     out->hret = info->ret;
 
-    pthread_mutex_lock(out->cb_mutex);
+    pthread_mutex_lock(&lkp.cb_mutex);
 
     /* Add address to map */
     if (out->hret != HG_SUCCESS)
-        (*(out->map))[out->grank] = HG_ADDR_NULL;
+        (*(lkp.map))[out->grank] = HG_ADDR_NULL;
     else
-        (*(out->map))[out->grank] = info->info.lookup.addr;
+        (*(lkp.map))[out->grank] = info->info.lookup.addr;
 
-    *(out->count) += 1;
-    pthread_cond_signal(out->cb_cv);
-    pthread_mutex_unlock(out->cb_mutex);
+    lkp.count += 1;
+    pthread_cond_signal(&lkp.cb_cv);
+    pthread_mutex_unlock(&lkp.cb_mutex);
 
     return HG_SUCCESS;
 }
@@ -182,19 +184,18 @@ static hg_return_t lookup_addrs(nexus_ctx_t nctx, hg_context_t *hgctx,
 {
     hg_lookup_out_t *out = NULL;
     hg_return_t hret;
-    pthread_mutex_t cb_mutex;
-    pthread_cond_t cb_cv;
-    int count = 0;
 
-    /* Init addr metadata */
+    lkp.count = 0;
+    lkp.map = map;
+
     out = (hg_lookup_out_t *)malloc(sizeof(*out) * xsize);
     if (out == NULL)
         return HG_NOMEM_ERROR;
 
-    pthread_mutex_init(&cb_mutex, NULL);
-    pthread_cond_init(&cb_cv, NULL);
+    pthread_mutex_init(&lkp.cb_mutex, NULL);
+    pthread_cond_init(&lkp.cb_cv, NULL);
 
-    pthread_mutex_lock(&cb_mutex);
+    pthread_mutex_lock(&lkp.cb_mutex);
 
     /* Post all lookups */
     for (int i = 0; i < xsize; i++) {
@@ -202,11 +203,7 @@ static hg_return_t lookup_addrs(nexus_ctx_t nctx, hg_context_t *hgctx,
 
         /* Populate out struct */
         out[eff_i].hret = HG_SUCCESS;
-        out[eff_i].map = map;
         out[eff_i].grank = xarray[eff_i].grank;
-        out[eff_i].count = &count;
-        out[eff_i].cb_mutex = &cb_mutex;
-        out[eff_i].cb_cv = &cb_cv;
 
 #ifdef NEXUS_DEBUG
         fprintf(stdout, "[%d] Idx %d: addr %s, grank %d (xsize = %d)\n",
@@ -216,19 +213,19 @@ static hg_return_t lookup_addrs(nexus_ctx_t nctx, hg_context_t *hgctx,
         hret = HG_Addr_lookup(hgctx, &hg_lookup_cb, &out[eff_i],
                               xarray[eff_i].addr, HG_OP_ID_IGNORE);
         if (hret != HG_SUCCESS) {
-            pthread_mutex_unlock(&cb_mutex);
+            pthread_mutex_unlock(&lkp.cb_mutex);
             goto err;
         }
     }
 
     /* Lookup posted, wait until finished */
 again:
-    if (count < xsize) {
-        pthread_cond_wait(&cb_cv, &cb_mutex);
-        if (count < xsize)
+    if (lkp.count < xsize) {
+        pthread_cond_wait(&lkp.cb_cv, &lkp.cb_mutex);
+        if (lkp.count < xsize)
             goto again;
     }
-    pthread_mutex_unlock(&cb_mutex);
+    pthread_mutex_unlock(&lkp.cb_mutex);
 
     hret = HG_SUCCESS;
     for (int i = 0; i < xsize; i++) {
@@ -239,8 +236,8 @@ again:
     }
 
 err:
-    pthread_cond_destroy(&cb_cv);
-    pthread_mutex_destroy(&cb_mutex);
+    pthread_cond_destroy(&lkp.cb_cv);
+    pthread_mutex_destroy(&lkp.cb_mutex);
     free(out);
     return hret;
 }
