@@ -18,7 +18,6 @@
 
 #include "deltafs-nexus_api.h"
 
-#define HGADDRSZ    32
 //#define NEXUS_DEBUG
 
 typedef std::map<int,hg_addr_t> nexus_map_t;
@@ -30,6 +29,7 @@ struct nexus_ctx
 {
     int grank;                  /* my global MPI rank */
     int gsize;                  /* total number of ranks */
+    int gaddrsz;                /* Max size of global Hg address */
 
     int nodeid;                 /* global ID of node (in repconn) */
     int nodesz;                 /* total number of nodes */
@@ -37,6 +37,7 @@ struct nexus_ctx
     int lrank;                  /* my local MPI rank */
     int lsize;                  /* number of local ranks */
     int lroot;                  /* global rank of local root */
+    int laddrsz;                /* Max size of local Hg address */
 
     int *local2global;          /* local rank -> global rank */
     int *rank2node;             /* rank -> node ID */

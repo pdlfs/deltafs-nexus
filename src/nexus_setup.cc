@@ -36,10 +36,12 @@
 
 #include "nexus_internal.h"
 
+#define TMPADDRSZ   32
+
 typedef struct {
-    char addr[HGADDRSZ];
     int grank;
     int lrank;
+    char addr[];
 } xchg_dat_t;
 
 typedef struct {
@@ -88,9 +90,9 @@ static void prepare_addr(nexus_ctx_t nctx, char *subnet, char *proto, char *uri)
     struct ifaddrs *ifaddr, *cur;
     int family, ret, port;
     char ip[16];
-    int so, n = 1;
+    int so, n;
     struct sockaddr_in addr;
-    socklen_t addr_len;
+    socklen_t addr_len = sizeof(addr);
 
     /* Query local socket layer to get our IP addr */
     if (getifaddrs(&ifaddr) == -1)
@@ -117,12 +119,13 @@ static void prepare_addr(nexus_ctx_t nctx, char *subnet, char *proto, char *uri)
     freeifaddrs(ifaddr);
 
     port = 0;
+    n = 1;
     so = socket(PF_INET, SOCK_STREAM, 0);
     setsockopt(so, SOL_SOCKET, SO_REUSEADDR, &n, sizeof(n));
     if (so != -1) {
         addr.sin_family = AF_INET;
         addr.sin_addr.s_addr = INADDR_ANY;
-        addr.sin_port = htons(0);
+        addr.sin_port = htons(port);
         n = bind(so, (struct sockaddr*)&addr, sizeof(addr));
         if (n == 0) {
             n = getsockname(so, (struct sockaddr*)&addr, &addr_len);
@@ -180,7 +183,7 @@ static hg_return_t hg_lookup_cb(const struct hg_cb_info *info)
 }
 
 static hg_return_t lookup_addrs(nexus_ctx_t nctx, hg_context_t *hgctx,
-                                xchg_dat_t *xarray, int xsize, nexus_map_t *map)
+                                xchg_dat_t *xarr, int xsize, nexus_map_t *map)
 {
     hg_lookup_out_t *out = NULL;
     hg_return_t hret;
@@ -200,18 +203,20 @@ static hg_return_t lookup_addrs(nexus_ctx_t nctx, hg_context_t *hgctx,
     /* Post all lookups */
     for (int i = 0; i < xsize; i++) {
         int eff_i = (nctx->grank + i) % xsize;
+        xchg_dat_t *xi = (xchg_dat_t *)(((char *)xarr) +
+                         eff_i * (sizeof(*xi) + nctx->laddrsz));
 
         /* Populate out struct */
         out[eff_i].hret = HG_SUCCESS;
-        out[eff_i].grank = xarray[eff_i].grank;
+        out[eff_i].grank = xi->grank;
 
 #ifdef NEXUS_DEBUG
         fprintf(stdout, "[%d] Idx %d: addr %s, grank %d (xsize = %d)\n",
-                nctx->grank, eff_i, xarray[eff_i].addr, xarray[eff_i].grank, xsize);
+                nctx->grank, eff_i, xi->addr, xi->grank, xsize);
 #endif
 
         hret = HG_Addr_lookup(hgctx, &hg_lookup_cb, &out[eff_i],
-                              xarray[eff_i].addr, HG_OP_ID_IGNORE);
+                              xi->addr, HG_OP_ID_IGNORE);
         if (hret != HG_SUCCESS) {
             pthread_mutex_unlock(&lkp.cb_mutex);
             goto err;
@@ -244,10 +249,9 @@ err:
 
 static void discover_local_info(nexus_ctx_t nctx)
 {
-    int ret;
-    char hgaddr[HGADDRSZ];
-    xchg_dat_t xitem;
-    xchg_dat_t *xarray;
+    int ret, len;
+    char hgaddr[TMPADDRSZ];
+    xchg_dat_t *xitm, *xarr;
     hg_return_t hret;
     pthread_t bgthread; /* network background thread */
     bgthread_dat_t bgarg;
@@ -277,31 +281,42 @@ static void discover_local_info(nexus_ctx_t nctx)
     if (ret != 0)
         msg_abort("pthread_create failed");
 
-    /* Exchange addresses, global, and local ranks in local comm */
-    strncpy(xitem.addr, hgaddr, sizeof(xitem.addr));
-    xitem.grank = nctx->grank;
-    xitem.lrank = nctx->lrank;
+    /* Find max address size in local comm */
+    len = strnlen(hgaddr, sizeof(hgaddr)) + 1;
+    MPI_Allreduce(&len, &nctx->laddrsz, 1, MPI_INT, MPI_MAX, nctx->localcomm);
+    len = sizeof(xchg_dat_t) + nctx->laddrsz;
 
-    xarray = (xchg_dat_t *)malloc(sizeof(xchg_dat_t) * (nctx->lsize));
-    if (!xarray)
+    /* Exchange addresses, global, and local ranks in local comm */
+    xitm = (xchg_dat_t *)malloc(len);
+    if (!xitm)
+        msg_abort("malloc failed");
+
+    xitm->grank = nctx->grank;
+    xitm->lrank = nctx->lrank;
+    strncpy(xitm->addr, hgaddr, nctx->laddrsz);
+
+    xarr = (xchg_dat_t *)malloc(nctx->lsize * len);
+    if (!xarr)
         msg_abort("malloc failed");
 
     nctx->local2global = (int *)malloc(sizeof(int) * nctx->lsize);
     if (!nctx->local2global)
         msg_abort("malloc failed");
 
-    MPI_Allgather(&xitem, sizeof(xchg_dat_t), MPI_BYTE,
-                  xarray, sizeof(xchg_dat_t), MPI_BYTE, nctx->localcomm);
+    MPI_Allgather(xitm, len, MPI_BYTE, xarr, len, MPI_BYTE, nctx->localcomm);
+    free(xitm);
 
     /* Build map of local to global ranks, find local root */
     for (int i = 0; i < nctx->lsize; i++) {
-        nctx->local2global[xarray[i].lrank] = xarray[i].grank;
-        if (xarray[i].lrank == 0)
-            nctx->lroot = xarray[i].grank;
+        xchg_dat_t *xi = (xchg_dat_t *)(((char *)xarr) + i * len);
+
+        nctx->local2global[xi->lrank] = xi->grank;
+        if (xi->lrank == 0)
+            nctx->lroot = xi->grank;
     }
 
     /* Look up local Mercury addresses */
-    if (lookup_addrs(nctx, nctx->local_hgctx, xarray,
+    if (lookup_addrs(nctx, nctx->local_hgctx, xarr,
                      nctx->lsize, &nctx->laddrs) != HG_SUCCESS)
         msg_abort("lookup_addrs failed");
 
@@ -315,10 +330,10 @@ static void discover_local_info(nexus_ctx_t nctx)
     /* Terminate network thread */
     bgarg.bgdone = 1;
     pthread_join(bgthread, NULL);
-    free(xarray);
+    free(xarr);
 }
 
-#define NADDR(x, y) (&x[y * HGADDRSZ])
+#define NADDR(x, y, s) (&x[y * s])
 
 static void find_remote_addrs(nexus_ctx_t nctx, char *myaddr)
 {
@@ -343,16 +358,19 @@ static void find_remote_addrs(nexus_ctx_t nctx, char *myaddr)
      */
 
     /* Step 1: build rank => address array */
-    rank2addr = (char *)malloc(sizeof(char) * nctx->gsize * HGADDRSZ);
+    i = strlen(myaddr) + 1;
+    MPI_Allreduce(&i, &nctx->gaddrsz, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
+
+    rank2addr = (char *)malloc(nctx->gsize * nctx->gaddrsz);
     if (!rank2addr)
         msg_abort("malloc failed");
 
-    MPI_Allgather(myaddr, HGADDRSZ, MPI_BYTE,
-                  rank2addr, HGADDRSZ, MPI_BYTE, MPI_COMM_WORLD);
+    MPI_Allgather(myaddr, nctx->gaddrsz, MPI_BYTE,
+                  rank2addr, nctx->gaddrsz, MPI_BYTE, MPI_COMM_WORLD);
 #ifdef NEXUS_DEBUG
     for (i = 0; i < nctx->gsize; i++)
         fprintf(stdout, "[%d] i = %d, data = %s\n",
-                nctx->grank, i, NADDR(rank2addr, i));
+                nctx->grank, i, NADDR(rank2addr, i, nctx->gaddrsz));
 #endif
 
     /* Step 2: find max number of ranks per node */
@@ -402,7 +420,7 @@ nonroot:
     maxpeers = (nctx->nodesz / nctx->lsize) +
                ((nctx->nodesz % nctx->lsize) ? 1 : 0);
 
-    paddrs = (xchg_dat_t *)malloc(sizeof(xchg_dat_t) * maxpeers);
+    paddrs = (xchg_dat_t *)malloc(maxpeers * (sizeof(*paddrs) + nctx->gaddrsz));
     if (!paddrs)
         msg_abort("malloc failed");
 
@@ -438,9 +456,9 @@ nonroot:
 
         remote_lsize = nodelists[idx];
         remote_grank = nodelists[idx + 1 + (nctx->nodeid % remote_lsize)];
-        remote_addr = NADDR(rank2addr, remote_grank);
+        remote_addr = NADDR(rank2addr, remote_grank, nctx->gaddrsz);
 
-        strncpy(paddrs[npeers].addr, remote_addr, HGADDRSZ);
+        strncpy(paddrs[npeers].addr, remote_addr, nctx->gaddrsz);
         paddrs[npeers].grank = i; /* store node ID, not rank */
 
         i += nctx->lsize;
@@ -529,7 +547,7 @@ static void discover_remote_info(nexus_ctx_t nctx, char *hgaddr)
 nexus_ctx_t nexus_bootstrap(char *subnet, char *proto)
 {
     nexus_ctx_t nctx = NULL;
-    char hgaddr[HGADDRSZ];
+    char hgaddr[TMPADDRSZ];
 
     /* Allocate context */
     nctx = new nexus_ctx;
