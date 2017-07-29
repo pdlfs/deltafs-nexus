@@ -30,7 +30,7 @@
 
 #include "nexus_internal.h"
 
-static bool nexus_is_local(nexus_ctx_t *nctx, int rank, hg_addr_t *addr)
+static bool nexus_is_local(nexus_ctx_t nctx, int rank, hg_addr_t *addr)
 {
     nexus_map_t::iterator it;
 
@@ -54,7 +54,7 @@ static hg_addr_t nexus_get_addr(nexus_map_t map, int key)
     return HG_ADDR_NULL;
 }
 
-nexus_ret_t nexus_next_hop(nexus_ctx_t *nctx, int dest,
+nexus_ret_t nexus_next_hop(nexus_ctx_t nctx, int dest,
                            int *rank, hg_addr_t *addr)
 {
     int srcrep, destrep;
@@ -105,4 +105,10 @@ nexus_ret_t nexus_next_hop(nexus_ctx_t *nctx, int dest,
     }
 
     return NX_INVAL;
+}
+
+nexus_ret_t nexus_set_grank(nexus_ctx_t nctx, int rank)
+{
+    nctx->grank = rank;
+    return NX_SUCCESS;
 }

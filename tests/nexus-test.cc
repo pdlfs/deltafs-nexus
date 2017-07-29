@@ -167,8 +167,8 @@ int main(int argc, char **argv)
         printf("\tProtocol = %s\n", tctx.proto);
     }
 
-    if (nexus_bootstrap(&(tctx.nctx), tctx.minport, tctx.maxport,
-                        tctx.subnet, tctx.proto) != NX_SUCCESS) {
+    if (!(tctx.nctx = nexus_bootstrap(tctx.minport, tctx.maxport,
+                                      tctx.subnet, tctx.proto))) {
         fprintf(stderr, "Error: nexus_bootstrap failed\n");
         goto error;
     }
@@ -184,7 +184,7 @@ int main(int argc, char **argv)
                 src, i, src, dst);
 
         /* Get srcrep */
-        nret = nexus_next_hop(&(tctx.nctx), dst, &srcrep, &sr_addr);
+        nret = nexus_next_hop(tctx.nctx, dst, &srcrep, &sr_addr);
 #if 0
         if (nret == NX_DONE) {
             fprintf(stdout, "[r%d,i%d] Route: src (%d) and dst (%d) overlap\n",
@@ -216,17 +216,13 @@ int main(int argc, char **argv)
         print_hg_addr(tctx.hgcl, srcrep, "srcrep");
 #endif
 done:
-        tctx.nctx.grank = src;
+        nexus_set_grank(tctx.nctx, src);
         fprintf(stdout, "[r%d,i%d] Route: src=%d -> src_rep=%d"
                         " -> dst_rep=%d -> dst=%d\n",
                 src, i, src, srcrep, dstrep, dst);
     }
 
-    if (nexus_destroy(&(tctx.nctx))) {
-        fprintf(stderr, "Error: nexus_destroy failed\n");
-        goto error;
-    }
-
+    nexus_destroy(tctx.nctx);
     MPI_Finalize();
     exit(0);
 

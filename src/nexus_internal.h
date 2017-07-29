@@ -21,6 +21,41 @@
 #define HGADDRSZ    32
 //#define NEXUS_DEBUG
 
+typedef std::map<int,hg_addr_t> nexus_map_t;
+
+/*
+ * Nexus library context
+ */
+struct nexus_ctx
+{
+    int grank;                  /* my global MPI rank */
+    int gsize;                  /* total number of ranks */
+
+    int nodeid;                 /* global ID of node (in repconn) */
+    int nodesz;                 /* total number of nodes */
+
+    int lrank;                  /* my local MPI rank */
+    int lsize;                  /* number of local ranks */
+    int lroot;                  /* global rank of local root */
+
+    int *local2global;          /* local rank -> global rank */
+    int *rank2node;             /* rank -> node ID */
+    int *node2rep;              /* node -> rep global rank */
+
+    nexus_map_t laddrs;         /* local rank -> Hg address */
+    nexus_map_t gaddrs;         /* remote node -> Hg address of our rep */
+
+    /* MPI communicators */
+    MPI_Comm localcomm;
+    MPI_Comm repcomm;
+
+    /* Mercury state */
+    hg_class_t *remote_hgcl;    /* Remote Hg class */
+    hg_context_t *remote_hgctx; /* Remote Hg context */
+    hg_class_t *local_hgcl;     /* Local Hg class */
+    hg_context_t *local_hgctx;  /* Local Hg context */
+};
+
 /*
  * msg_abort: abort with a message
  */
@@ -35,7 +70,7 @@ static inline void msg_abort(const char* msg)
     abort();
 }
 
-static void print_addrs(nexus_ctx_t *nctx, hg_class_t *hgcl, nexus_map_t map)
+static void print_addrs(nexus_ctx_t nctx, hg_class_t *hgcl, nexus_map_t map)
 {
     nexus_map_t::iterator it;
     char *addr_str = NULL;
@@ -61,7 +96,7 @@ static void print_addrs(nexus_ctx_t *nctx, hg_class_t *hgcl, nexus_map_t map)
     }
 }
 
-static void init_local_comm(nexus_ctx_t *nctx)
+static void init_local_comm(nexus_ctx_t nctx)
 {
     int ret;
 
@@ -76,7 +111,7 @@ static void init_local_comm(nexus_ctx_t *nctx)
 #endif
 }
 
-static void init_rep_comm(nexus_ctx_t *nctx)
+static void init_rep_comm(nexus_ctx_t nctx)
 {
     int ret;
 

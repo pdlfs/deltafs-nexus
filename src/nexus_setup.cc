@@ -83,7 +83,7 @@ static void *nexus_bgthread(void *arg)
  * Put together the remote Mercury endpoint address from bootstrap parameters.
  * Writes the server URI into *uri on success. Aborts on error.
  */
-static void prepare_addr(nexus_ctx_t *nctx, int minport, int maxport,
+static void prepare_addr(nexus_ctx_t nctx, int minport, int maxport,
                          char *subnet, char *proto, char *uri)
 {
     struct ifaddrs *ifaddr, *cur;
@@ -181,7 +181,6 @@ static void prepare_addr(nexus_ctx_t *nctx, int minport, int maxport,
 
 typedef struct hg_lookup_out {
     hg_return_t hret;
-    nexus_ctx_t *nctx;
     int grank;
 
     /* The address map we'll be updating */
@@ -196,7 +195,6 @@ typedef struct hg_lookup_out {
 static hg_return_t hg_lookup_cb(const struct hg_cb_info *info)
 {
     hg_lookup_out_t *out = (hg_lookup_out_t *)info->arg;
-    nexus_ctx_t *nctx = out->nctx;
     out->hret = info->ret;
 
     pthread_mutex_lock(out->cb_mutex);
@@ -214,7 +212,7 @@ static hg_return_t hg_lookup_cb(const struct hg_cb_info *info)
     return HG_SUCCESS;
 }
 
-static hg_return_t lookup_addrs(nexus_ctx_t *nctx, hg_context_t *hgctx,
+static hg_return_t lookup_addrs(nexus_ctx_t nctx, hg_context_t *hgctx,
                                 xchg_dat_t *xarray, int xsize, nexus_map_t *map)
 {
     hg_lookup_out_t *out = NULL;
@@ -239,7 +237,6 @@ static hg_return_t lookup_addrs(nexus_ctx_t *nctx, hg_context_t *hgctx,
 
         /* Populate out struct */
         out[eff_i].hret = HG_SUCCESS;
-        out[eff_i].nctx = nctx;
         out[eff_i].map = map;
         out[eff_i].grank = xarray[eff_i].grank;
         out[eff_i].count = &count;
@@ -283,7 +280,7 @@ err:
     return hret;
 }
 
-static void discover_local_info(nexus_ctx_t *nctx)
+static void discover_local_info(nexus_ctx_t nctx)
 {
     int ret;
     char hgaddr[HGADDRSZ];
@@ -337,10 +334,8 @@ static void discover_local_info(nexus_ctx_t *nctx)
     /* Build map of local to global ranks, find local root */
     for (int i = 0; i < nctx->lsize; i++) {
         nctx->local2global[xarray[i].lrank] = xarray[i].grank;
-        if (xarray[i].lrank == 0) {
+        if (xarray[i].lrank == 0)
             nctx->lroot = xarray[i].grank;
-            continue;
-        }
     }
 
     /* Look up local Mercury addresses */
@@ -363,7 +358,7 @@ static void discover_local_info(nexus_ctx_t *nctx)
 
 #define NADDR(x, y) (&x[y * HGADDRSZ])
 
-static void find_remote_addrs(nexus_ctx_t *nctx, char *myaddr)
+static void find_remote_addrs(nexus_ctx_t nctx, char *myaddr)
 {
     int i, npeers, maxnodesz, maxpeers;
     int *msgdata, *nodelists;
@@ -519,7 +514,7 @@ nonroot:
     free(paddrs);
 }
 
-static void discover_remote_info(nexus_ctx_t *nctx, char *hgaddr)
+static void discover_remote_info(nexus_ctx_t nctx, char *hgaddr)
 {
     int ret;
     pthread_t bgthread; /* network background thread */
@@ -569,10 +564,16 @@ static void discover_remote_info(nexus_ctx_t *nctx, char *hgaddr)
     pthread_join(bgthread, NULL);
 }
 
-nexus_ret_t nexus_bootstrap(nexus_ctx_t *nctx, int minport, int maxport,
+nexus_ctx_t nexus_bootstrap(int minport, int maxport,
                             char *subnet, char *proto)
 {
+    nexus_ctx_t nctx = NULL;
     char hgaddr[HGADDRSZ];
+
+    /* Allocate context */
+    nctx = new nexus_ctx;
+    if (!nctx)
+        return NULL;
 
     /* Grab MPI rank info */
     MPI_Comm_rank(MPI_COMM_WORLD, &(nctx->grank));
@@ -599,10 +600,10 @@ nexus_ret_t nexus_bootstrap(nexus_ctx_t *nctx, int minport, int maxport,
             nctx->grank, nctx->grank, nctx->lrank, nctx->gsize, nctx->lsize);
 #endif /* NEXUS_DEBUG */
 
-    return NX_SUCCESS;
+    return nctx;
 }
 
-nexus_ret_t nexus_destroy(nexus_ctx_t *nctx)
+void nexus_destroy(nexus_ctx_t nctx)
 {
     nexus_map_t::iterator it;
 
@@ -641,5 +642,5 @@ nexus_ret_t nexus_destroy(nexus_ctx_t *nctx)
     free(nctx->local2global);
     free(nctx->rank2node);
     MPI_Comm_free(&nctx->repcomm);
-    return NX_SUCCESS;
+    free(nctx);
 }
