@@ -184,7 +184,8 @@ static hg_return_t hg_lookup_cb(const struct hg_cb_info *info)
 
 static hg_return_t lookup_addrs(nexus_ctx_t nctx,
                                 hg_context_t *hgctx, hg_class_t *hgcl,
-                                xchg_dat_t *xarr, int xsize, nexus_map_t *map)
+                                xchg_dat_t *xarr, int xsize, int addrsz,
+                                nexus_map_t *map)
 {
     hg_lookup_out_t *out = NULL;
     hg_return_t hret;
@@ -211,7 +212,7 @@ send_again:
     for (int i = 0; i < eff_size; i++) {
         int eff_i = ((nctx->grank + i) % eff_size) + cur_i;
         xchg_dat_t *xi = (xchg_dat_t *)(((char *)xarr) +
-                         eff_i * (sizeof(*xi) + nctx->laddrsz));
+                         eff_i * (sizeof(*xi) + addrsz));
 
         /* Populate out struct */
         out[eff_i].hret = HG_SUCCESS;
@@ -342,7 +343,7 @@ static void discover_local_info(nexus_ctx_t nctx)
 
     /* Look up local Mercury addresses */
     if (lookup_addrs(nctx, nctx->local_hgctx, nctx->local_hgcl, xarr,
-                     nctx->lsize, &nctx->laddrs) != HG_SUCCESS)
+                     nctx->lsize, nctx->laddrsz, &nctx->laddrs) != HG_SUCCESS)
         msg_abort("lookup_addrs failed");
 
 #ifdef NEXUS_DEBUG
@@ -394,7 +395,7 @@ static void find_remote_addrs(nexus_ctx_t nctx, char *myaddr)
                   rank2addr, nctx->gaddrsz, MPI_BYTE, MPI_COMM_WORLD);
 #ifdef NEXUS_DEBUG
     for (i = 0; i < nctx->gsize; i++)
-        fprintf(stdout, "[%d] i = %d, data = %s\n",
+        fprintf(stdout, "[%d] rank2addr[%d] = %s\n",
                 nctx->grank, i, NADDR(rank2addr, i, nctx->gaddrsz));
 #endif
 
@@ -431,7 +432,7 @@ nonroot:
               MPI_BYTE, 0, nctx->localcomm);
 #ifdef NEXUS_DEBUG
     for (i = 0; i < ((maxnodesz+1) * nctx->nodesz); i++)
-        fprintf(stdout, "[%d] i = %d, data = %d\n",
+        fprintf(stdout, "[%d] nodelists[%d] = %d\n",
                 nctx->grank, i, nodelists[i]);
 #endif
 
@@ -472,6 +473,7 @@ nonroot:
         int idx = i * (maxnodesz + 1);
         int remote_grank, remote_lsize;
         char *remote_addr;
+        xchg_dat_t *ppeer;
 
         /* Skip ourselves */
         if (i == nctx->nodeid) {
@@ -483,8 +485,10 @@ nonroot:
         remote_grank = nodelists[idx + 1 + (nctx->nodeid % remote_lsize)];
         remote_addr = NADDR(rank2addr, remote_grank, nctx->gaddrsz);
 
-        strncpy(paddrs[npeers].addr, remote_addr, nctx->gaddrsz);
-        paddrs[npeers].grank = i; /* store node ID, not rank */
+        ppeer = (xchg_dat_t *)(((char *)paddrs) + npeers *
+                                (sizeof(*ppeer) + nctx->gaddrsz));
+        strncpy(ppeer->addr, remote_addr, nctx->gaddrsz);
+        ppeer->grank = i; /* store node ID, not rank */
 
         i += nctx->lsize;
         npeers += 1;
@@ -501,14 +505,18 @@ nonroot:
     }
 
 #ifdef NEXUS_DEBUG
-    for (i = 0; i < npeers; i++)
+    for (i = 0; i < npeers; i++) {
+        xchg_dat_t *ppeer = (xchg_dat_t *)(((char *)paddrs) + i *
+                                            (sizeof(*ppeer) + nctx->gaddrsz));
+
         fprintf(stdout, "[%d] i = %d, grank = %d, addr = %s\n",
-                nctx->grank, i, paddrs[i].grank, paddrs[i].addr);
+                nctx->grank, i, ppeer->grank, ppeer->addr);
+    }
 #endif
 
     /* Step 2: lookup peer addresses */
     if (lookup_addrs(nctx, nctx->remote_hgctx, nctx->remote_hgcl, paddrs,
-                     npeers, &nctx->gaddrs) != HG_SUCCESS)
+                     npeers, nctx->gaddrsz, &nctx->gaddrs) != HG_SUCCESS)
         msg_abort("lookup_addrs failed");
 
 #ifdef NEXUS_DEBUG
