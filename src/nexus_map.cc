@@ -97,7 +97,7 @@ nexus_ret_t nexus_next_hop(nexus_ctx_t nctx, int dest,
         return NX_SRCREP;
     } else {
         /* We are the srcrep. Find destrep address and return it */
-        *addr = nexus_get_addr(nctx->gaddrs, destrep);
+        *addr = nexus_get_addr(nctx->gaddrs, ndest);
         if (*addr == HG_ADDR_NULL) return NX_NOTFOUND;
         if (rank) *rank = destrep;
 
