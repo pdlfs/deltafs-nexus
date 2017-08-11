@@ -13,6 +13,7 @@
 #include <mercury.h>
 
 typedef struct nexus_ctx *nexus_ctx_t;
+typedef struct nexus_iter *nexus_iter_t;
 
 /* error codes */
 typedef enum {
@@ -93,3 +94,55 @@ hg_context_t *nexus_hgcontext_local(nexus_ctx_t nctx);
  * @param nctx context
  */
 hg_context_t *nexus_hgcontext_remote(nexus_ctx_t nctx);
+
+/**
+ * Allocate a new iterator.  nctx must remain active while iter is
+ * allocated.  must free iterator when done.
+ *
+ * @param nctx context
+ * @param local set non-zero if you want a local map iterator
+ */
+nexus_iter_t nexus_iter(nexus_ctx_t nctx, int local);
+
+/**
+ * Free a previously allocated iterator
+ *
+ * @param nitp pointer to iterator handle (we set to null)
+ */
+void nexus_iter_free(nexus_iter_t *nitp);
+
+/**
+ * Return non-zero if we are at the end of the map.
+ *
+ * @param nit iterator handle
+ */
+int nexus_iter_atend(nexus_iter_t nit);
+
+/**
+ * Advance the iterator
+ *
+ * @param nit iterator handle
+ */
+void nexus_iter_advance(nexus_iter_t nit);
+
+/**
+ * Return current hgaddr of iterator
+ *
+ * @param nit iterator handle
+ */
+hg_addr_t nexus_iter_addr(nexus_iter_t nit);
+
+/**
+ * Return current global rank of iterator
+ *
+ * @param nit iterator handle
+ */
+int nexus_iter_globalrank(nexus_iter_t nit);
+
+/**
+ * Return current subrank of iterator.  subrank is local rank for local
+ * maps and node number for remote maps.
+ *
+ * @param nit iterator handle
+ */
+int nexus_iter_subrank(nexus_iter_t nit);
