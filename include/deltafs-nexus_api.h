@@ -65,3 +65,31 @@ int nexus_global_rank(nexus_ctx_t nctx);
  * @return NX_SUCCESS or an error code
  */
 nexus_ret_t nexus_set_grank(nexus_ctx_t nctx, int rank);
+
+/**
+ * Return mercury class for local (na+sm)
+ *
+ * @param nctx context
+ */
+hg_class_t *nexus_hgclass_local(nexus_ctx_t nctx);
+
+/**
+ * Return mercury class for remote (bmi+tcp or something like that)
+ *
+ * @param nctx context
+ */
+hg_class_t *nexus_hgclass_remote(nexus_ctx_t nctx);
+
+/**
+ * Return mercury context for local (bmi+tcp or something like that)
+ *
+ * @param nctx context
+ */
+hg_context_t *nexus_hgcontext_local(nexus_ctx_t nctx);
+
+/**
+ * Return mercury context for remote (bmi+tcp or something like that)
+ *
+ * @param nctx context
+ */
+hg_context_t *nexus_hgcontext_remote(nexus_ctx_t nctx);

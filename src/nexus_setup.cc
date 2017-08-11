@@ -656,3 +656,23 @@ void nexus_destroy(nexus_ctx_t nctx)
     MPI_Comm_free(&nctx->repcomm);
     free(nctx);
 }
+
+hg_class_t *nexus_hgclass_local(nexus_ctx_t nctx)
+{
+    return(nctx->local_hgcl);
+}
+
+hg_class_t *nexus_hgclass_remote(nexus_ctx_t nctx)
+{
+    return(nctx->remote_hgcl);
+}
+
+hg_context_t *nexus_hgcontext_local(nexus_ctx_t nctx)
+{
+    return(nctx->local_hgctx);
+}
+
+hg_context_t *nexus_hgcontext_remote(nexus_ctx_t nctx)
+{
+    return(nctx->remote_hgctx);
+}
