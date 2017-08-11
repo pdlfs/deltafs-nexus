@@ -112,3 +112,8 @@ nexus_ret_t nexus_set_grank(nexus_ctx_t nctx, int rank)
     nctx->grank = rank;
     return NX_SUCCESS;
 }
+
+int nexus_global_rank(nexus_ctx_t nctx)
+{
+    return nctx->grank;
+}

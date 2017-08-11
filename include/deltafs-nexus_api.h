@@ -52,6 +52,13 @@ nexus_ret_t nexus_next_hop(nexus_ctx_t nctx, int dest,
                            int *rank, hg_addr_t *addr);
 
 /**
+ * Return global rank of this process (assumes nexus is up)
+ * @param nctx context
+ * @return global rank
+ */
+int nexus_global_rank(nexus_ctx_t nctx);
+
+/**
  * Sets the global rank of the process (for debug purposes)
  * @param nexus context
  * @param new MPI rank
