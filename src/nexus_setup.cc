@@ -650,7 +650,7 @@ void nexus_destroy(nexus_ctx_t nctx)
     if (!nctx->grank)
         fprintf(stdout, "Nexus: done remote info cleanup\n");
 
-    free(nctx->node2rep);
+    if (nctx->nodesz > 1) free(nctx->node2rep);
     free(nctx->local2global);
     free(nctx->rank2node);
     MPI_Comm_free(&nctx->repcomm);
