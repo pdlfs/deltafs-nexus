@@ -92,7 +92,7 @@ static void print_addrs(nexus_ctx_t nctx, hg_class_t *hgcl, nexus_map_t map)
         if (hret != HG_SUCCESS)
             msg_abort("HG_Addr_to_string failed");
 
-        fprintf(stdout, "[%d] Mercury addr for rank %d: %s\n",
+        fprintf(stderr, "[%d] Mercury addr for rank %d: %s\n",
                 nctx->grank, it->first, addr_str);
         free(addr_str);
     }

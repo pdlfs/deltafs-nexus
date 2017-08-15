@@ -216,11 +216,11 @@ send_again:
 
         /* Populate out struct */
         out[eff_i].hret = HG_SUCCESS;
-        out[eff_i].grank = xi->grank;
+        out[eff_i].idx = xi->idx;
 
 #ifdef NEXUS_DEBUG
-        fprintf(stdout, "[%d] Idx %d: addr %s, grank %d (xsize = %d)\n",
-                nctx->grank, eff_i, xi->addr, xi->grank, xsize);
+        fprintf(stderr, "[%d] Idx %d: addr %s, idx %d, grank %d (xsize = %d)\n",
+                nctx->grank, eff_i, xi->addr, xi->idx, xi->grank, xsize);
 #endif
 
         if (xi->grank != nctx->grank) {
@@ -395,7 +395,7 @@ static void find_remote_addrs(nexus_ctx_t nctx, char *myaddr)
                   rank2addr, nctx->gaddrsz, MPI_BYTE, MPI_COMM_WORLD);
 #ifdef NEXUS_DEBUG
     for (i = 0; i < nctx->gsize; i++)
-        fprintf(stdout, "[%d] rank2addr[%d] = %s\n",
+        fprintf(stderr, "[%d] rank2addr[%d] = %s\n",
                 nctx->grank, i, NADDR(rank2addr, i, nctx->gaddrsz));
 #endif
 
@@ -432,7 +432,7 @@ nonroot:
               MPI_BYTE, 0, nctx->localcomm);
 #ifdef NEXUS_DEBUG
     for (i = 0; i < ((maxnodesz+1) * nctx->nodesz); i++)
-        fprintf(stdout, "[%d] nodelists[%d] = %d\n",
+        fprintf(stderr, "[%d] nodelists[%d] = %d\n",
                 nctx->grank, i, nodelists[i]);
 #endif
 
@@ -509,8 +509,8 @@ nonroot:
         xchg_dat_t *ppeer = (xchg_dat_t *)(((char *)paddrs) + i *
                                             (sizeof(*ppeer) + nctx->gaddrsz));
 
-        fprintf(stdout, "[%d] i = %d, grank = %d, addr = %s\n",
-                nctx->grank, i, ppeer->grank, ppeer->addr);
+        fprintf(stderr, "[%d] i = %d, idx = %d, grank = %d, addr = %s\n",
+                nctx->grank, i, ppeer->idx, ppeer->grank, ppeer->addr);
     }
 #endif
 
@@ -521,7 +521,7 @@ nonroot:
 
 #ifdef NEXUS_DEBUG
     print_addrs(nctx, nctx->remote_hgcl, nctx->gaddrs);
-    fprintf(stdout, "[%d] printed gaddrs, npeers = %d\n", nctx->grank, npeers);
+    fprintf(stderr, "[%d] printed gaddrs, npeers = %d\n", nctx->grank, npeers);
 #endif
 
     free(paddrs);
