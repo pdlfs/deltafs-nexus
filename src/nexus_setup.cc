@@ -40,7 +40,7 @@
 
 typedef struct {
     int grank;
-    int lrank;
+    int idx;
     char addr[];
 } xchg_dat_t;
 
@@ -159,7 +159,7 @@ struct hg_lookup_ctx {
 
 typedef struct hg_lookup_out {
     hg_return_t hret;
-    int grank;
+    int idx;
 } hg_lookup_out_t;
 
 static hg_return_t hg_lookup_cb(const struct hg_cb_info *info)
@@ -171,9 +171,9 @@ static hg_return_t hg_lookup_cb(const struct hg_cb_info *info)
 
     /* Add address to map */
     if (out->hret != HG_SUCCESS)
-        (*(lkp.map))[out->grank] = HG_ADDR_NULL;
+        (*(lkp.map))[out->idx] = HG_ADDR_NULL;
     else
-        (*(lkp.map))[out->grank] = info->info.lookup.addr;
+        (*(lkp.map))[out->idx] = info->info.lookup.addr;
 
     lkp.count += 1;
     pthread_cond_signal(&lkp.cb_cv);
@@ -231,9 +231,9 @@ send_again:
 
             /* Add address to map */
             if (hret != HG_SUCCESS)
-                (*(lkp.map))[xi->grank] = HG_ADDR_NULL;
+                (*(lkp.map))[xi->idx] = HG_ADDR_NULL;
             else
-                (*(lkp.map))[xi->grank] = self_addr;
+                (*(lkp.map))[xi->idx] = self_addr;
 
             lkp.count += 1;
         }
@@ -317,8 +317,9 @@ static void discover_local_info(nexus_ctx_t nctx)
     if (!xitm)
         msg_abort("malloc failed");
 
+    /* For local2global our index is lrank */
     xitm->grank = nctx->grank;
-    xitm->lrank = nctx->lrank;
+    xitm->idx = nctx->lrank;
     strncpy(xitm->addr, hgaddr, nctx->laddrsz);
 
     xarr = (xchg_dat_t *)malloc(nctx->lsize * len);
@@ -336,9 +337,12 @@ static void discover_local_info(nexus_ctx_t nctx)
     for (int i = 0; i < nctx->lsize; i++) {
         xchg_dat_t *xi = (xchg_dat_t *)(((char *)xarr) + i * len);
 
-        nctx->local2global[xi->lrank] = xi->grank;
-        if (xi->lrank == 0)
+        nctx->local2global[xi->idx] = xi->grank;
+        if (xi->idx == 0)
             nctx->lroot = xi->grank;
+
+        /* For lookups our index is the grank, so switch */
+        xi->idx = xi->grank;
     }
 
     /* Look up local Mercury addresses */
@@ -488,10 +492,11 @@ nonroot:
         ppeer = (xchg_dat_t *)(((char *)paddrs) + npeers *
                                 (sizeof(*ppeer) + nctx->gaddrsz));
         strncpy(ppeer->addr, remote_addr, nctx->gaddrsz);
-        ppeer->grank = i; /* store node ID, not rank */
+        ppeer->idx = i; /* we index by node ID */
+        ppeer->grank = remote_grank;
 
         i += nctx->lsize;
-        npeers += 1;
+        npeers++;
     }
 
     /* Get rid of arrays we don't need anymore */
