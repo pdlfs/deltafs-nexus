@@ -223,7 +223,7 @@ send_again:
                 nctx->grank, eff_i, xi->addr, xi->grank, xsize);
 #endif
 
-        if (out[eff_i].grank != nctx->grank) {
+        if (xi->grank != nctx->grank) {
             hret = HG_Addr_lookup(hgctx, &hg_lookup_cb, &out[eff_i],
                                   xi->addr, HG_OP_ID_IGNORE);
         } else {
