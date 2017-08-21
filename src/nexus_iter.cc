@@ -93,8 +93,7 @@ hg_addr_t nexus_iter_addr(nexus_iter_t nit) {
 int nexus_iter_globalrank(nexus_iter_t nit) {
     int subrank, grank;
     subrank = nit->mapit->first;
-    grank = (nit->islocal) ? nit->nctx->local2global[subrank] :
-                             nit->nctx->node2rep[subrank];
+    grank = (nit->islocal) ? subrank : nit->nctx->node2rep[subrank];
     return(grank);
 }
 
@@ -102,5 +101,7 @@ int nexus_iter_globalrank(nexus_iter_t nit) {
  * nexus_iter_subrank: return current subrank of iterator
  */
 int nexus_iter_subrank(nexus_iter_t nit) {
-    return(nit->mapit->first);
+    int ret;
+    ret = (nit->islocal) ? 0 : nit->mapit->first;
+    return(ret);
 }

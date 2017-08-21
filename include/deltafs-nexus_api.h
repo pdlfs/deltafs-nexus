@@ -140,7 +140,7 @@ hg_addr_t nexus_iter_addr(nexus_iter_t nit);
 int nexus_iter_globalrank(nexus_iter_t nit);
 
 /**
- * Return current subrank of iterator.  subrank is local rank for local
+ * Return current subrank of iterator.  subrank is 0 for local
  * maps and node number for remote maps.
  *
  * @param nit iterator handle
