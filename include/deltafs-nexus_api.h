@@ -9,22 +9,22 @@
 
 #pragma once
 
-#include <map>
 #include <mercury.h>
+#include <map>
 
-typedef struct nexus_ctx *nexus_ctx_t;
-typedef struct nexus_iter *nexus_iter_t;
+typedef struct nexus_ctx* nexus_ctx_t;
+typedef struct nexus_iter* nexus_iter_t;
 
 /* error codes */
 typedef enum {
-    NX_SUCCESS = 0, /* operation succeeded */
-    NX_ERROR,       /* operation resulted in error */
-    NX_NOTFOUND,    /* address not found */
-    NX_ISLOCAL,     /* dest is local */
-    NX_SRCREP,      /* dest is srcrep */
-    NX_DESTREP,     /* dest is dstrep */
-    NX_INVAL,       /* invalid parameter */
-    NX_DONE,        /* already at destination */
+  NX_SUCCESS = 0, /* operation succeeded */
+  NX_ERROR,       /* operation resulted in error */
+  NX_NOTFOUND,    /* address not found */
+  NX_ISLOCAL,     /* dest is local */
+  NX_SRCREP,      /* dest is srcrep */
+  NX_DESTREP,     /* dest is dstrep */
+  NX_INVAL,       /* invalid parameter */
+  NX_DONE,        /* already at destination */
 } nexus_ret_t;
 
 /**
@@ -33,7 +33,7 @@ typedef enum {
  * @param string of the Mercury protocol plugin to be preferred
  * @return nexus context or NULL on error
  */
-nexus_ctx_t nexus_bootstrap(char *subnet, char *proto);
+nexus_ctx_t nexus_bootstrap(char* subnet, char* proto);
 
 /**
  * Destroys the Nexus library freeing all allocated resources
@@ -49,8 +49,16 @@ void nexus_destroy(nexus_ctx_t nctx);
  * @param Mercury address of next hop (returned)
  * @return NX_SUCCESS or an error code
  */
-nexus_ret_t nexus_next_hop(nexus_ctx_t nctx, int dest,
-                           int *rank, hg_addr_t *addr);
+nexus_ret_t nexus_next_hop(nexus_ctx_t nctx, int dest, int* rank,
+                           hg_addr_t* addr);
+
+/**
+ * Blocks until all processes in the global communicator have reached this
+ * routine.
+ * @param nctx context
+ * @return NX_SUCCESS or an error code
+ */
+nexus_ret_t nexus_global_barrier(nexus_ctx_t nctx);
 
 /**
  * Return global rank of this process (assumes nexus is up)
@@ -58,6 +66,35 @@ nexus_ret_t nexus_next_hop(nexus_ctx_t nctx, int dest,
  * @return global rank
  */
 int nexus_global_rank(nexus_ctx_t nctx);
+
+/**
+ * Return size of the global communicator (assumes nexus is up)
+ * @param nctx context
+ * @return size of the global communicator
+ */
+int nexus_global_size(nexus_ctx_t nctx);
+
+/**
+ * Blocks until all processes in the local communicator have reached this
+ * routine.
+ * @param nctx context
+ * @return NX_SUCCESS or an error code
+ */
+nexus_ret_t nexus_local_barrier(nexus_ctx_t nctx);
+
+/**
+ * Return local rank of this process (assumes nexus is up)
+ * @param nctx context
+ * @return local rank
+ */
+int nexus_local_rank(nexus_ctx_t nctx);
+
+/**
+ * Return size of the local communicator (assumes nexus is up)
+ * @param nctx context
+ * @return size of the global communicator
+ */
+int nexus_local_size(nexus_ctx_t nctx);
 
 /**
  * Sets the global rank of the process (for debug purposes)
@@ -72,28 +109,28 @@ nexus_ret_t nexus_set_grank(nexus_ctx_t nctx, int rank);
  *
  * @param nctx context
  */
-hg_class_t *nexus_hgclass_local(nexus_ctx_t nctx);
+hg_class_t* nexus_hgclass_local(nexus_ctx_t nctx);
 
 /**
  * Return mercury class for remote (bmi+tcp or something like that)
  *
  * @param nctx context
  */
-hg_class_t *nexus_hgclass_remote(nexus_ctx_t nctx);
+hg_class_t* nexus_hgclass_remote(nexus_ctx_t nctx);
 
 /**
  * Return mercury context for local (bmi+tcp or something like that)
  *
  * @param nctx context
  */
-hg_context_t *nexus_hgcontext_local(nexus_ctx_t nctx);
+hg_context_t* nexus_hgcontext_local(nexus_ctx_t nctx);
 
 /**
  * Return mercury context for remote (bmi+tcp or something like that)
  *
  * @param nctx context
  */
-hg_context_t *nexus_hgcontext_remote(nexus_ctx_t nctx);
+hg_context_t* nexus_hgcontext_remote(nexus_ctx_t nctx);
 
 /**
  * Allocate a new iterator.  nctx must remain active while iter is
@@ -109,7 +146,7 @@ nexus_iter_t nexus_iter(nexus_ctx_t nctx, int local);
  *
  * @param nitp pointer to iterator handle (we set to null)
  */
-void nexus_iter_free(nexus_iter_t *nitp);
+void nexus_iter_free(nexus_iter_t* nitp);
 
 /**
  * Return non-zero if we are at the end of the map.

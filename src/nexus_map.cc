@@ -113,7 +113,42 @@ nexus_ret_t nexus_set_grank(nexus_ctx_t nctx, int rank)
     return NX_SUCCESS;
 }
 
+nexus_ret_t nexus_global_barrier(nexus_ctx_t nctx)
+{
+    int rv;
+
+    rv = MPI_Barrier(MPI_COMM_WORLD);
+    if (rv != MPI_SUCCESS) return NX_ERROR;
+
+    return NX_SUCCESS;
+}
+
 int nexus_global_rank(nexus_ctx_t nctx)
 {
     return nctx->grank;
+}
+
+int nexus_global_size(nexus_ctx_t nctx)
+{
+    return nctx->gsize;
+}
+
+nexus_ret_t nexus_local_barrier(nexus_ctx_t nctx)
+{
+    int rv;
+
+    rv = MPI_Barrier(nctx->localcomm);
+    if (rv != MPI_SUCCESS) return NX_ERROR;
+
+    return NX_SUCCESS;
+}
+
+int nexus_local_rank(nexus_ctx_t nctx)
+{
+    return nctx->lrank;
+}
+
+int nexus_local_size(nexus_ctx_t nctx)
+{
+    return nctx->lsize;
 }
