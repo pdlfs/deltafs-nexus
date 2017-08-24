@@ -597,20 +597,20 @@ nexus_ctx_t nexus_bootstrap(char *subnet, char *proto)
     MPI_Comm_size(MPI_COMM_WORLD, &(nctx->gsize));
 
     if (!nctx->grank)
-        fprintf(stdout, "Nexus: started bootstrap\n");
+        fprintf(stdout, "<nexus>: started bootstrap\n");
 
     init_local_comm(nctx);
     discover_local_info(nctx);
 
     if (!nctx->grank)
-        fprintf(stdout, "Nexus: done local info discovery\n");
+        fprintf(stdout, "<nexus>: done local info discovery\n");
 
     prepare_addr(nctx, subnet, proto, hgaddr);
     init_rep_comm(nctx);
     discover_remote_info(nctx, hgaddr);
 
     if (!nctx->grank)
-        fprintf(stdout, "Nexus: done remote info discovery\n");
+        fprintf(stdout, "<nexus>: done remote info discovery\n");
 
 #ifdef NEXUS_DEBUG
     fprintf(stdout, "[%d] grank = %d, lrank = %d, gsize = %d, lsize = %d\n",
@@ -638,7 +638,7 @@ void nexus_destroy(nexus_ctx_t nctx)
     HG_Finalize(nctx->local_hgcl);
 
     if (!nctx->grank)
-        fprintf(stdout, "Nexus: done local info cleanup\n");
+        fprintf(stdout, "<nexus>: done local info cleanup\n");
 
     /* Free remote Mercury addresses */
     for (it = nctx->gaddrs.begin(); it != nctx->gaddrs.end(); it++)
@@ -653,7 +653,7 @@ void nexus_destroy(nexus_ctx_t nctx)
     HG_Finalize(nctx->remote_hgcl);
 
     if (!nctx->grank)
-        fprintf(stdout, "Nexus: done remote info cleanup\n");
+        fprintf(stdout, "<nexus>: done remote info cleanup\n");
 
     if (nctx->nodesz > 1) free(nctx->node2rep);
     free(nctx->local2global);
