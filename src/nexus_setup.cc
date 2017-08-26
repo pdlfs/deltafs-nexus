@@ -659,7 +659,7 @@ void nexus_destroy(nexus_ctx_t nctx)
     free(nctx->local2global);
     free(nctx->rank2node);
     MPI_Comm_free(&nctx->repcomm);
-    free(nctx);
+    delete nctx;
 }
 
 hg_class_t *nexus_hgclass_local(nexus_ctx_t nctx)
