@@ -85,10 +85,10 @@ static void *nexus_bgthread(void *arg)
  * Put together the remote Mercury endpoint address from bootstrap parameters.
  * Writes the server URI into *uri on success. Aborts on error.
  */
-static void prepare_addr(nexus_ctx_t nctx, char *subnet, char *proto, char *uri)
+static void prepare_addr(char *subnet, char *proto, char *uri)
 {
     struct ifaddrs *ifaddr, *cur;
-    int family, ret, port;
+    int family, port;
     char ip[16];
     int so, n;
     struct sockaddr_in addr;
@@ -585,7 +585,7 @@ static void discover_remote_info(nexus_ctx_t nctx, char *hgaddr)
 nexus_ctx_t nexus_bootstrap(char *subnet, char *proto)
 {
     nexus_ctx_t nctx = NULL;
-    char hgaddr[TMPADDRSZ];
+    char hgaddr[TMPADDRSZ]; // HG server uri
 
     /* Allocate context */
     nctx = new nexus_ctx;
@@ -605,7 +605,7 @@ nexus_ctx_t nexus_bootstrap(char *subnet, char *proto)
     if (!nctx->grank)
         fprintf(stdout, "<nexus>: done local info discovery\n");
 
-    prepare_addr(nctx, subnet, proto, hgaddr);
+    prepare_addr(subnet, proto, hgaddr);
     init_rep_comm(nctx);
     discover_remote_info(nctx, hgaddr);
 
