@@ -582,6 +582,42 @@ static void discover_remote_info(nexus_ctx_t nctx, char *hgaddr)
     pthread_join(bgthread, NULL);
 }
 
+nexus_ctx_t nexus_bootstrap_uri(char *uri)
+{
+    nexus_ctx_t nctx = NULL;
+
+    /* Allocate context */
+    nctx = new nexus_ctx;
+    if (!nctx)
+        return NULL;
+
+    /* Grab MPI rank info */
+    MPI_Comm_rank(MPI_COMM_WORLD, &(nctx->grank));
+    MPI_Comm_size(MPI_COMM_WORLD, &(nctx->gsize));
+
+    if (!nctx->grank)
+        fprintf(stdout, "<nexus>: started bootstrap\n");
+
+    init_local_comm(nctx);
+    discover_local_info(nctx);
+
+    if (!nctx->grank)
+        fprintf(stdout, "<nexus>: done local info discovery\n");
+
+    init_rep_comm(nctx);
+    discover_remote_info(nctx, uri);
+
+    if (!nctx->grank)
+        fprintf(stdout, "<nexus>: done remote info discovery\n");
+
+#ifdef NEXUS_DEBUG
+    fprintf(stdout, "[%d] grank = %d, lrank = %d, gsize = %d, lsize = %d\n",
+            nctx->grank, nctx->grank, nctx->lrank, nctx->gsize, nctx->lsize);
+#endif /* NEXUS_DEBUG */
+
+    return nctx;
+}
+
 nexus_ctx_t nexus_bootstrap(char *subnet, char *proto)
 {
     nexus_ctx_t nctx = NULL;

@@ -36,6 +36,13 @@ typedef enum {
 nexus_ctx_t nexus_bootstrap(char* subnet, char* proto);
 
 /**
+ * nexus_bootstrap_uri: bootstraps the nx library using a specific server uri
+ * @param uri mercury server uri for remote forwarding
+ * @return nexus context or NULL on errors
+ */
+nexus_ctx_t nexus_bootstrap_uri(char* uri);
+
+/**
  * Destroys the Nexus library freeing all allocated resources
  * @param nexus context
  */
