@@ -39,13 +39,7 @@ set (DELTAFS_NEXUS_VERSION
 #
 add_library (deltafs-nexus ${deltafs-nexus-srcs})
 
-# XXXCDC: remove /usr/include from MERCURY_INCLUDE_DIR if it is 
-# there since it causes problems with gcc6 (-isystem issue).
-list (REMOVE_ITEM MERCURY_INCLUDE_DIR /usr/include)
-
-# XXX: mercury link target should add MERCURY_INCLUDE_DIR for us
-target_include_directories (deltafs-nexus PUBLIC ${MERCURY_INCLUDE_DIR}
-                            $<INSTALL_INTERFACE:include>)
+target_include_directories (deltafs-nexus PUBLIC $<INSTALL_INTERFACE:include>)
 # make sure our build includes are BEFORE a previously installed version
 target_include_directories (deltafs-nexus BEFORE PUBLIC
       $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>)
