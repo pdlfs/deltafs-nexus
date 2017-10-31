@@ -54,7 +54,9 @@ set_target_properties(deltafs-nexus
                       SOVERSION ${DELTAFS_NEXUS_VERSION_MAJOR})
 
 # special handling for MPI, where the config comes in via MPI_<lang>_ vars.
-foreach (lcv ${MPI_CXX_COMPILE_FLAGS})
+# Note that the mpich on ub14 gives a leading space that we need to trim off.
+string (REPLACE " " ";" mpicxx_flags "${MPI_CXX_COMPILE_FLAGS}")
+foreach (lcv ${mpicxx_flags})
     if (NOT ${lcv} STREQUAL "")
         target_compile_options (deltafs-nexus PUBLIC $<BUILD_INTERFACE:${lcv}>)
     endif ()
