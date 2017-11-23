@@ -275,6 +275,7 @@ err:
 
 static void discover_local_info(nexus_ctx_t nctx)
 {
+    char *nlocal;
     int ret, len;
     char hgaddr[TMPADDRSZ];
     xchg_dat_t *xitm, *xarr;
@@ -286,7 +287,14 @@ static void discover_local_info(nexus_ctx_t nctx)
     MPI_Comm_size(nctx->localcomm, &(nctx->lsize));
 
     /* Initialize local Mercury listening endpoints */
-    snprintf(hgaddr, sizeof(hgaddr), "na+sm://%d/0", getpid());
+    nlocal = getenv("NEXUS_ALT_LOCAL");
+    if (nlocal) {
+        snprintf(hgaddr, sizeof(hgaddr), "%s://127.0.0.1:%d", nlocal,
+        19000+ nctx->lrank);
+        fprintf(stderr, "Initializing for %s\n", hgaddr);
+    } else {
+        snprintf(hgaddr, sizeof(hgaddr), "na+sm://%d/0", getpid());
+    }
 #ifdef NEXUS_DEBUG
     fprintf(stderr, "Initializing for %s\n", hgaddr);
 #endif
