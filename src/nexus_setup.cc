@@ -609,7 +609,6 @@ static void discover_remote_info(nexus_ctx_t nctx, char *hgaddr_in)
                           self) != HG_SUCCESS)
         msg_abort("HG_Addr_to_string on self failed?");
     HG_Addr_free(nctx->remote_hgcl, self);
-fprintf(stderr, "GAG: %s\n", hgaddr_out);
 
     find_remote_addrs(nctx, hgaddr_out);
 
