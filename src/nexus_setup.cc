@@ -82,17 +82,12 @@ static void *nexus_bgthread(void *arg)
 }
 
 /*
- * Put together the remote Mercury endpoint address from bootstrap parameters.
- * Writes the server URI into *uri on success. Aborts on error.
+ * get_ipmatch: look at our interfaces and find an IP address that
+ * matches our spec...  aborts on failure.
  */
-static void prepare_addr(char *subnet, char *proto, char *uri)
-{
+static void get_ipmatch(char *subnet, char *i, int ilen) {
     struct ifaddrs *ifaddr, *cur;
-    int family, port;
-    char ip[16];
-    int so, n;
-    struct sockaddr_in addr;
-    socklen_t addr_len = sizeof(addr);
+    int family;
 
     /* Query local socket layer to get our IP addr */
     if (getifaddrs(&ifaddr) == -1)
@@ -103,11 +98,11 @@ static void prepare_addr(char *subnet, char *proto, char *uri)
             family = cur->ifa_addr->sa_family;
 
             if (family == AF_INET) {
-                if (getnameinfo(cur->ifa_addr, sizeof(struct sockaddr_in), ip,
-                                sizeof(ip), NULL, 0, NI_NUMERICHOST) == -1)
+                if (getnameinfo(cur->ifa_addr, sizeof(struct sockaddr_in), i,
+                                ilen, NULL, 0, NI_NUMERICHOST) == -1)
                     msg_abort("getnameinfo failed");
 
-                if (strncmp(subnet, ip, strlen(subnet)) == 0)
+                if (strncmp(subnet, i, strlen(subnet)) == 0)
                     break;
             }
         }
@@ -117,31 +112,54 @@ static void prepare_addr(char *subnet, char *proto, char *uri)
         msg_abort("no ip addr");
 
     freeifaddrs(ifaddr);
+}
 
-    port = 0;
-    n = 1;
-    so = socket(PF_INET, SOCK_STREAM, 0);
-    setsockopt(so, SOL_SOCKET, SO_REUSEADDR, &n, sizeof(n));
-    if (so != -1) {
-        addr.sin_family = AF_INET;
-        addr.sin_addr.s_addr = INADDR_ANY;
-        addr.sin_port = htons(port);
-        n = bind(so, (struct sockaddr*)&addr, sizeof(addr));
-        if (n == 0) {
-            n = getsockname(so, (struct sockaddr*)&addr, &addr_len);
-            if (n == 0)
-                port = ntohs(addr.sin_port); /* okay */
+/*
+ * Put together the remote Mercury endpoint address from bootstrap parameters.
+ * Writes the server URI into *uri on success. Aborts on error.
+ */
+static void prepare_addr(nexus_ctx_t nctx, char *subnet,
+                         char *proto, char *uri) {
+    char ip[16];
+    int lcv, port, so, n;
+    struct sockaddr_in addr;
+    socklen_t addr_len = sizeof(addr);
+
+    get_ipmatch(subnet, ip, sizeof(ip));  /* fill ip w/req'd local IP */
+
+    if (strcmp(proto, "bmi+tcp") == 0) {
+        /*
+         * XXX: bmi+tcp HG_Addr_to_string() is broken.  if we request
+         * port 0 (to let OS fill in) and later use HG_Addr_to_string()
+         * to request the actual port number allocated, it still returns
+         * 0 as the port number...   here's an attempt to hack around
+         * this bug.
+         */
+        so = socket(PF_INET, SOCK_STREAM, 0);
+        if (so < 0) msg_abort("bmi:socket1");
+        n = 1;
+        setsockopt(so, SOL_SOCKET, SO_REUSEADDR, &n, sizeof(n));
+        for (lcv = 0; lcv < 1024; lcv++) {
+            /* have each local rank try a different set of ports */
+            port = 10000 + (lcv * nctx->lsize) + nctx->lrank;
+            addr.sin_family = AF_INET;
+            addr.sin_addr.s_addr = INADDR_ANY;
+            addr.sin_port = htons(port);
+            n = bind(so, (struct sockaddr *)&addr, sizeof(addr));
+            if (n == 0) break;
         }
         close(so);
+        if (n != 0) msg_abort("bmi:socket2");
+
+        sprintf(uri, "%s://%s:%d", proto, ip, port);
+
     } else {
-        msg_abort("socket");
+
+        /* set port 0, let OS fill it, collect later w/HG_Addr_to_string */
+        sprintf(uri, "%s://%s:0", proto, ip);
+
     }
 
-    if (port == 0)
-        msg_abort("no free ports");
-
-    /* add proto */
-    sprintf(uri, "%s://%s:%d", proto, ip, port);
 #ifdef NEXUS_DEBUG
     fprintf(stdout, "Info: Using address %s\n", uri);
 #endif
@@ -275,6 +293,7 @@ err:
 
 static void discover_local_info(nexus_ctx_t nctx)
 {
+    char *nlocal;
     int ret, len;
     char hgaddr[TMPADDRSZ];
     xchg_dat_t *xitm, *xarr;
@@ -286,7 +305,14 @@ static void discover_local_info(nexus_ctx_t nctx)
     MPI_Comm_size(nctx->localcomm, &(nctx->lsize));
 
     /* Initialize local Mercury listening endpoints */
-    snprintf(hgaddr, sizeof(hgaddr), "na+sm://%d/0", getpid());
+    nlocal = getenv("NEXUS_ALT_LOCAL");
+    if (nlocal) {
+        snprintf(hgaddr, sizeof(hgaddr), "%s://127.0.0.1:%d", nlocal,
+        19000+ nctx->lrank);
+        fprintf(stderr, "Initializing for %s\n", hgaddr);
+    } else {
+        snprintf(hgaddr, sizeof(hgaddr), "na+sm://%d/0", getpid());
+    }
 #ifdef NEXUS_DEBUG
     fprintf(stderr, "Initializing for %s\n", hgaddr);
 #endif
@@ -532,11 +558,14 @@ nonroot:
     free(paddrs);
 }
 
-static void discover_remote_info(nexus_ctx_t nctx, char *hgaddr)
+static void discover_remote_info(nexus_ctx_t nctx, char *hgaddr_in)
 {
+    hg_addr_t self;
     int ret;
     pthread_t bgthread; /* network background thread */
     bgthread_dat_t bgarg;
+    char hgaddr_out[TMPADDRSZ]; // resolved HG server uri
+    hg_size_t outsz;
 
     /* Find node IDs, number of nodes and broadcast them */
     if (nctx->grank == nctx->lroot) {
@@ -556,7 +585,7 @@ static void discover_remote_info(nexus_ctx_t nctx, char *hgaddr)
                   1, MPI_INT, MPI_COMM_WORLD);
 
     /* Initialize remote Mercury listening endpoints */
-    nctx->remote_hgcl = HG_Init(hgaddr, HG_TRUE);
+    nctx->remote_hgcl = HG_Init(hgaddr_in, HG_TRUE);
     if (!nctx->remote_hgcl)
         msg_abort("HG_Init failed for remote endpoint");
 
@@ -572,7 +601,16 @@ static void discover_remote_info(nexus_ctx_t nctx, char *hgaddr)
     if (ret != 0)
         msg_abort("pthread_create failed");
 
-    find_remote_addrs(nctx, hgaddr);
+    /* convert input addr spec to final to get port number used */
+    if (HG_Addr_self(nctx->remote_hgcl, &self) != HG_SUCCESS)
+        msg_abort("HG_Addr_self failed?");
+    outsz = sizeof(hgaddr_out);
+    if (HG_Addr_to_string(nctx->remote_hgcl, hgaddr_out, &outsz,
+                          self) != HG_SUCCESS)
+        msg_abort("HG_Addr_to_string on self failed?");
+    HG_Addr_free(nctx->remote_hgcl, self);
+
+    find_remote_addrs(nctx, hgaddr_out);
 
     /* Sync before terminating background threads */
     MPI_Barrier(MPI_COMM_WORLD);
@@ -641,7 +679,7 @@ nexus_ctx_t nexus_bootstrap(char *subnet, char *proto)
     if (!nctx->grank)
         fprintf(stdout, "<nexus>: done local info discovery\n");
 
-    prepare_addr(subnet, proto, hgaddr);
+    prepare_addr(nctx, subnet, proto, hgaddr);
     init_rep_comm(nctx);
     discover_remote_info(nctx, hgaddr);
 
