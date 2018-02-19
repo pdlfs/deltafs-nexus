@@ -36,7 +36,7 @@
 
 #include "nexus_internal.h"
 
-#define TMPADDRSZ   32
+#define TMPADDRSZ   64
 
 typedef struct {
     int grank;
