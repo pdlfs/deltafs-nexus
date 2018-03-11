@@ -296,27 +296,31 @@ static void discover_local_info(nexus_ctx_t nctx) {
   if (nlocal) {
     snprintf(hgaddr, sizeof(hgaddr), "%s://127.0.0.1:%d", nlocal,
              19000 + nctx->lrank);
-    fprintf(stderr, "Initializing for %s\n", hgaddr);
   } else {
     snprintf(hgaddr, sizeof(hgaddr), "na+sm://%d/0", getpid());
   }
 #ifdef NEXUS_DEBUG
-  fprintf(stderr, "Initializing for %s\n", hgaddr);
+  fprintf(stderr, "NX: LO INIT AT %s\n", hgaddr);
 #endif
 
-  nctx->local_hgcl = HG_Init(hgaddr, HG_TRUE);
-  if (!nctx->local_hgcl) msg_abort("HG_init failed for local endpoint");
+  nctx->hg_local = (nexus_hg_t*)malloc(sizeof(nexus_hg_t));
+  memset(nctx->hg_local, 0, sizeof(nexus_hg_t));
+  nctx->hg_local->hg_cl = HG_Init(hgaddr, HG_TRUE);
+  if (!nctx->hg_local->hg_cl) {
+    msg_abort("nx::local::HG_Init");
+  }
+  nctx->hg_local->hg_ctx = HG_Context_create(nctx->hg_local->hg_cl);
+  if (!nctx->hg_local->hg_ctx) {
+    msg_abort("nx::local::HG_Context_create");
+  }
 
-  nctx->local_hgctx = HG_Context_create(nctx->local_hgcl);
-  if (!nctx->local_hgctx)
-    msg_abort("HG_Context_create failed for local endpoint");
-
+  nctx->hg_local->refs = 1;
   /* Start the network thread */
-  bgarg.hgctx = nctx->local_hgctx;
+  bgarg.hgctx = nctx->hg_local->hg_ctx;
   bgarg.bgdone = 0;
 
   ret = pthread_create(&bgthread, NULL, nexus_bgthread, (void*)&bgarg);
-  if (ret != 0) msg_abort("pthread_create failed");
+  if (ret != 0) msg_abort("pthread_create");
 
   /* Find max address size in local comm */
   len = strnlen(hgaddr, sizeof(hgaddr)) + 1;
@@ -353,12 +357,14 @@ static void discover_local_info(nexus_ctx_t nctx) {
   }
 
   /* Look up local Mercury addresses */
-  if (lookup_addrs(nctx, nctx->local_hgctx, nctx->local_hgcl, xarr, nctx->lsize,
-                   nctx->laddrsz, &nctx->laddrs) != HG_SUCCESS)
-    msg_abort("lookup_addrs failed");
+  hret = lookup_addrs(nctx, nctx->hg_local->hg_ctx, nctx->hg_local->hg_cl, xarr,
+                      nctx->lsize, nctx->laddrsz, &nctx->laddrs);
+  if (hret != HG_SUCCESS) {
+    msg_abort("nx::local::lookup_addrs");
+  }
 
 #ifdef NEXUS_DEBUG
-  print_addrs(nctx, nctx->local_hgcl, nctx->laddrs);
+  print_addrs(nctx, nctx->hg_local->hg_cl, nctx->laddrs);
 #endif
 
   /* Sync before terminating background threads */
@@ -377,6 +383,7 @@ static void find_remote_addrs(nexus_ctx_t nctx, char* myaddr) {
   int *msgdata, *nodelists;
   char* rank2addr;
   xchg_dat_t* paddrs;
+  hg_return_t hret;
 
   /* If we're alone stop here */
   if (nctx->nodesz == 1) return;
@@ -517,12 +524,14 @@ nonroot:
 #endif
 
   /* Step 2: lookup peer addresses */
-  if (lookup_addrs(nctx, nctx->remote_hgctx, nctx->remote_hgcl, paddrs, npeers,
-                   nctx->gaddrsz, &nctx->gaddrs) != HG_SUCCESS)
+  hret = lookup_addrs(nctx, nctx->hg_remote->hg_ctx, nctx->hg_remote->hg_cl,
+                      paddrs, npeers, nctx->gaddrsz, &nctx->gaddrs);
+  if (hret != HG_SUCCESS) {
     msg_abort("lookup_addrs failed");
+  }
 
 #ifdef NEXUS_DEBUG
-  print_addrs(nctx, nctx->remote_hgcl, nctx->gaddrs);
+  print_addrs(nctx, nctx->hg_remote->hg_cl, nctx->gaddrs);
   fprintf(stderr, "[%d] printed gaddrs, npeers = %d\n", nctx->grank, npeers);
 #endif
 
@@ -553,29 +562,34 @@ static void discover_remote_info(nexus_ctx_t nctx, char* hgaddr_in) {
   MPI_Allgather(&nctx->nodeid, 1, MPI_INT, nctx->rank2node, 1, MPI_INT,
                 MPI_COMM_WORLD);
 
+  nctx->hg_remote = (nexus_hg_t*)malloc(sizeof(nexus_hg_t));
+  memset(nctx->hg_remote, 0, sizeof(nexus_hg_t));
   /* Initialize remote Mercury listening endpoints */
-  nctx->remote_hgcl = HG_Init(hgaddr_in, HG_TRUE);
-  if (!nctx->remote_hgcl) msg_abort("HG_Init failed for remote endpoint");
+  nctx->hg_remote->hg_cl = HG_Init(hgaddr_in, HG_TRUE);
+  if (!nctx->hg_remote->hg_cl) {
+    msg_abort("nx::remote::HG_Init");
+  }
+  nctx->hg_remote->hg_ctx = HG_Context_create(nctx->hg_remote->hg_cl);
+  if (!nctx->hg_remote->hg_ctx) {
+    msg_abort("nx::remote::HG_Context_create");
+  }
 
-  nctx->remote_hgctx = HG_Context_create(nctx->remote_hgcl);
-  if (!nctx->remote_hgctx)
-    msg_abort("HG_Context_create failed for remote endpoint");
-
+  nctx->hg_remote->refs = 1;
   /* Start the network thread */
-  bgarg.hgctx = nctx->remote_hgctx;
+  bgarg.hgctx = nctx->hg_remote->hg_ctx;
   bgarg.bgdone = 0;
 
   ret = pthread_create(&bgthread, NULL, nexus_bgthread, (void*)&bgarg);
-  if (ret != 0) msg_abort("pthread_create failed");
+  if (ret != 0) msg_abort("pthread_create");
 
   /* convert input addr spec to final to get port number used */
-  if (HG_Addr_self(nctx->remote_hgcl, &self) != HG_SUCCESS)
-    msg_abort("HG_Addr_self failed?");
+  if (HG_Addr_self(nctx->hg_remote->hg_cl, &self) != HG_SUCCESS)
+    msg_abort("nx::remote::HG_Addr_self");
   outsz = sizeof(hgaddr_out);
-  if (HG_Addr_to_string(nctx->remote_hgcl, hgaddr_out, &outsz, self) !=
+  if (HG_Addr_to_string(nctx->hg_remote->hg_cl, hgaddr_out, &outsz, self) !=
       HG_SUCCESS)
-    msg_abort("HG_Addr_to_string on self failed?");
-  HG_Addr_free(nctx->remote_hgcl, self);
+    msg_abort("nx::remote::HG_Addr_to_string");
+  HG_Addr_free(nctx->hg_remote->hg_cl, self);
 
   find_remote_addrs(nctx, hgaddr_out);
 
@@ -654,32 +668,28 @@ nexus_ctx_t nexus_bootstrap(char* subnet, char* proto) {
 void nexus_destroy(nexus_ctx_t nctx) {
   nexus_map_t::iterator it;
 
-  /* Free local Mercury addresses */
-  for (it = nctx->laddrs.begin(); it != nctx->laddrs.end(); it++)
-    if (it->second != HG_ADDR_NULL) HG_Addr_free(nctx->local_hgcl, it->second);
+  for (it = nctx->laddrs.begin(); it != nctx->laddrs.end(); it++) {
+    if (it->second != HG_ADDR_NULL) {
+      HG_Addr_free(nctx->hg_local->hg_cl, it->second);
+    }
+  }
 
-  /* Sync before tearing down local endpoints */
   MPI_Barrier(nctx->localcomm);
   MPI_Comm_free(&nctx->localcomm);
+  HG_Context_destroy(nctx->hg_local->hg_ctx);
+  HG_Finalize(nctx->hg_local->hg_cl);
+  free(nctx->hg_local);
 
-  /* Destroy Mercury local endpoints */
-  HG_Context_destroy(nctx->local_hgctx);
-  HG_Finalize(nctx->local_hgcl);
+  for (it = nctx->gaddrs.begin(); it != nctx->gaddrs.end(); it++) {
+    if (it->second != HG_ADDR_NULL) {
+      HG_Addr_free(nctx->hg_remote->hg_cl, it->second);
+    }
+  }
 
-  if (!nctx->grank) fprintf(stdout, "<nexus>: done local info cleanup\n");
-
-  /* Free remote Mercury addresses */
-  for (it = nctx->gaddrs.begin(); it != nctx->gaddrs.end(); it++)
-    if (it->second != HG_ADDR_NULL) HG_Addr_free(nctx->remote_hgcl, it->second);
-
-  /* Sync before tearing down remote endpoints */
   MPI_Barrier(MPI_COMM_WORLD);
-
-  /* Destroy Mercury remote endpoints */
-  HG_Context_destroy(nctx->remote_hgctx);
-  HG_Finalize(nctx->remote_hgcl);
-
-  if (!nctx->grank) fprintf(stdout, "<nexus>: done remote info cleanup\n");
+  HG_Context_destroy(nctx->hg_remote->hg_ctx);
+  HG_Finalize(nctx->hg_remote->hg_cl);
+  free(nctx->hg_remote);
 
   if (nctx->nodesz > 1) free(nctx->node2rep);
   free(nctx->local2global);
@@ -688,16 +698,18 @@ void nexus_destroy(nexus_ctx_t nctx) {
   delete nctx;
 }
 
-hg_class_t* nexus_hgclass_local(nexus_ctx_t nctx) { return (nctx->local_hgcl); }
-
-hg_class_t* nexus_hgclass_remote(nexus_ctx_t nctx) {
-  return (nctx->remote_hgcl);
+hg_context_t* nexus_hgcontext_local(nexus_ctx_t nctx) {
+  return nctx->hg_local->hg_ctx;
 }
 
-hg_context_t* nexus_hgcontext_local(nexus_ctx_t nctx) {
-  return (nctx->local_hgctx);
+hg_class_t* nexus_hgclass_local(nexus_ctx_t nctx) {
+  return nctx->hg_local->hg_cl;
 }
 
 hg_context_t* nexus_hgcontext_remote(nexus_ctx_t nctx) {
-  return (nctx->remote_hgctx);
+  return nctx->hg_remote->hg_ctx;
+}
+
+hg_class_t* nexus_hgclass_remote(nexus_ctx_t nctx) {
+  return nctx->hg_remote->hg_cl;
 }

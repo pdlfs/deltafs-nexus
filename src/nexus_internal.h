@@ -39,9 +39,16 @@
 #include "deltafs-nexus_api.h"
 
 #define NEXUS_LOOKUP_LIMIT 64
-//#define NEXUS_DEBUG
+#define NEXUS_DEBUG
 
 typedef std::map<int, hg_addr_t> nexus_map_t;
+
+/* nexus_hg_state: state for an opened mercury instance */
+typedef struct nexus_hg_state {
+  hg_class_t* hg_cl;
+  hg_context_t* hg_ctx;
+  int refs;
+} nexus_hg_t;
 
 /*
  * Nexus library context
@@ -66,15 +73,11 @@ struct nexus_ctx {
   nexus_map_t laddrs; /* global rank -> Hg address */
   nexus_map_t gaddrs; /* remote node -> Hg address of our rep */
 
-  /* MPI communicators */
   MPI_Comm localcomm;
   MPI_Comm repcomm;
 
-  /* Mercury state */
-  hg_class_t* remote_hgcl;    /* Remote Hg class */
-  hg_context_t* remote_hgctx; /* Remote Hg context */
-  hg_class_t* local_hgcl;     /* Local Hg class */
-  hg_context_t* local_hgctx;  /* Local Hg context */
+  nexus_hg_t* hg_remote;
+  nexus_hg_t* hg_local;
 };
 
 /*
