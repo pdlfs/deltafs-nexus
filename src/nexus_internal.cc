@@ -279,6 +279,29 @@ err:
   return hret;
 }
 
+static void nexus_dump_addrs(nexus_ctx_t nctx, hg_class_t* hgcl,
+                             nexus_map_t* map) {
+  char* addr_str = NULL;
+  hg_size_t addr_size = 0;
+  hg_return_t hret;
+
+  fprintf(stderr, "=== NX MAP DUMP (rank=%d) ===\n", nctx->grank);
+  for (nexus_map_t::iterator it = map->begin(); it != map->end(); ++it) {
+    hret = HG_Addr_to_string(hgcl, NULL, &addr_size, it->second);
+    if (hret != HG_SUCCESS) {
+      msg_abort("HG_Addr_to_string");
+    }
+    addr_str = (char*)malloc(addr_size);
+    if (!addr_str) msg_abort("malloc failed");
+    hret = HG_Addr_to_string(hgcl, addr_str, &addr_size, it->second);
+    if (hret != HG_SUCCESS) {
+      msg_abort("HG_Addr_to_string");
+    }
+    fprintf(stderr, "%06d %s\n", it->first, addr_str);
+    free(addr_str);
+  }
+}
+
 static void discover_local_info(nexus_ctx_t nctx) {
   char* nlocal;
   int ret, len;
