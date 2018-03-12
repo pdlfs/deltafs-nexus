@@ -364,7 +364,7 @@ static void discover_local_info(nexus_ctx_t nctx) {
   }
 
 #ifdef NEXUS_DEBUG
-  print_addrs(nctx, nctx->hg_local->hg_cl, nctx->laddrs);
+  nexus_dump_addrs(nctx, nctx->hg_local->hg_cl, &nctx->laddrs);
 #endif
 
   /* Sync before terminating background threads */
@@ -531,7 +531,7 @@ nonroot:
   }
 
 #ifdef NEXUS_DEBUG
-  print_addrs(nctx, nctx->hg_remote->hg_cl, nctx->gaddrs);
+  nexus_dump_addrs(nctx, nctx->hg_remote->hg_cl, &nctx->gaddrs);
   fprintf(stderr, "[%d] printed gaddrs, npeers = %d\n", nctx->grank, npeers);
 #endif
 
@@ -614,12 +614,12 @@ nexus_ctx_t nexus_bootstrap_uri(char* uri) {
 
   if (!nctx->grank) fprintf(stdout, "<nexus>: started bootstrap\n");
 
-  init_local_comm(nctx);
+  nexus_init_localcomm(nctx);
   discover_local_info(nctx);
 
   if (!nctx->grank) fprintf(stdout, "<nexus>: done local info discovery\n");
 
-  init_rep_comm(nctx);
+  nexus_init_repcomm(nctx);
   discover_remote_info(nctx, uri);
 
   if (!nctx->grank) fprintf(stdout, "<nexus>: done remote info discovery\n");
@@ -646,13 +646,13 @@ nexus_ctx_t nexus_bootstrap(char* subnet, char* proto) {
 
   if (!nctx->grank) fprintf(stdout, "<nexus>: started bootstrap\n");
 
-  init_local_comm(nctx);
+  nexus_init_localcomm(nctx);
   discover_local_info(nctx);
 
   if (!nctx->grank) fprintf(stdout, "<nexus>: done local info discovery\n");
 
   prepare_addr(nctx, subnet, proto, hgaddr);
-  init_rep_comm(nctx);
+  nexus_init_repcomm(nctx);
   discover_remote_info(nctx, hgaddr);
 
   if (!nctx->grank) fprintf(stdout, "<nexus>: done remote info discovery\n");

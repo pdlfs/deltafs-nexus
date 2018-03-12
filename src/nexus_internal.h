@@ -85,58 +85,60 @@ struct nexus_ctx {
  */
 static inline void msg_abort(const char* msg) {
   if (errno != 0) {
-    fprintf(stderr, "Error: %s (%s)\n", msg, strerror(errno));
+    fprintf(stderr, "NX FATAL: %s (%s)\n", msg, strerror(errno));
   } else {
-    fprintf(stderr, "Error: %s\n", msg);
+    fprintf(stderr, "NX FATAL: %s\n", msg);
   }
 
   abort();
 }
 
-static void print_addrs(nexus_ctx_t nctx, hg_class_t* hgcl, nexus_map_t map) {
-  nexus_map_t::iterator it;
+static void nexus_dump_addrs(nexus_ctx_t nctx, hg_class_t* hgcl,
+                             nexus_map_t* map) {
   char* addr_str = NULL;
   hg_size_t addr_size = 0;
   hg_return_t hret;
 
-  for (it = map.begin(); it != map.end(); it++) {
+  for (nexus_map_t::iterator it = map->begin(); it != map->end(); ++it) {
     hret = HG_Addr_to_string(hgcl, NULL, &addr_size, it->second);
-    if (hret != HG_SUCCESS) msg_abort("HG_Addr_to_string failed");
-
+    if (hret != HG_SUCCESS) {
+      msg_abort("HG_Addr_to_string");
+    }
     addr_str = (char*)malloc(addr_size);
     if (addr_str == NULL) msg_abort("malloc failed");
-
     hret = HG_Addr_to_string(hgcl, addr_str, &addr_size, it->second);
-    if (hret != HG_SUCCESS) msg_abort("HG_Addr_to_string failed");
-
-    fprintf(stderr, "[%d] Mercury addr for rank %d: %s\n", nctx->grank,
-            it->first, addr_str);
+    if (hret != HG_SUCCESS) {
+      msg_abort("HG_Addr_to_string");
+    }
+    fprintf(stderr, "[%d] NX MAP: %d > %s\n", nctx->grank, it->first, addr_str);
     free(addr_str);
   }
 }
 
-static void init_local_comm(nexus_ctx_t nctx) {
+static void nexus_init_localcomm(nexus_ctx_t nctx) {
   int ret;
 
 #if MPI_VERSION >= 3
   ret = MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0,
                             MPI_INFO_NULL, &nctx->localcomm);
-  if (ret != MPI_SUCCESS) msg_abort("MPI_Comm_split_type failed");
+  if (ret != MPI_SUCCESS) {
+    msg_abort("MPI_Comm_split_type");
+  }
 #else
-  /* XXX: Need to find a way to deal with MPI_VERSION < 3 */
-  msg_abort("Nexus needs MPI version 3 or higher");
+  msg_abort("MPI-3 required");
 #endif
 }
 
-static void init_rep_comm(nexus_ctx_t nctx) {
+static void nexus_init_repcomm(nexus_ctx_t nctx) {
   int ret;
 
 #if MPI_VERSION >= 3
   ret = MPI_Comm_split(MPI_COMM_WORLD, (nctx->grank == nctx->lroot),
                        nctx->grank, &nctx->repcomm);
-  if (ret != MPI_SUCCESS) msg_abort("MPI_Comm_split_type failed");
+  if (ret != MPI_SUCCESS) {
+    msg_abort("MPI_Comm_split_type");
+  }
 #else
-  /* XXX: Need to find a way to deal with MPI_VERSION < 3 */
-  msg_abort("Nexus needs MPI version 3 or higher");
+  msg_abort("MPI-3 required");
 #endif
 }
