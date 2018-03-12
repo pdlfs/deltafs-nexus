@@ -4,7 +4,7 @@
 #
 
 # list of source files
-set (deltafs-nexus-srcs nexus_setup.cc nexus_iter.cc nexus_map.cc)
+set (deltafs-nexus-srcs nexus_internal.cc nexus_iter.cc nexus.cc)
 
 #
 # configure/load in standard modules we plan to use and probe the enviroment
