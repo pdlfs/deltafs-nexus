@@ -330,11 +330,11 @@ static void discover_local_info(nexus_ctx_t nctx) {
   memset(nctx->hg_local, 0, sizeof(nexus_hg_t));
   nctx->hg_local->hg_cl = HG_Init(hgaddr, HG_TRUE);
   if (!nctx->hg_local->hg_cl) {
-    msg_abort("nx::local::HG_Init");
+    msg_abort("lo:HG_Init");
   }
   nctx->hg_local->hg_ctx = HG_Context_create(nctx->hg_local->hg_cl);
   if (!nctx->hg_local->hg_ctx) {
-    msg_abort("nx::local::HG_Context_create");
+    msg_abort("lo:HG_Context_create");
   }
 
   nctx->hg_local->refs = 1;
@@ -383,7 +383,7 @@ static void discover_local_info(nexus_ctx_t nctx) {
   hret = lookup_addrs(nctx, nctx->hg_local->hg_ctx, nctx->hg_local->hg_cl, xarr,
                       nctx->lsize, nctx->laddrsz, &nctx->laddrs);
   if (hret != HG_SUCCESS) {
-    msg_abort("nx::local::lookup_addrs");
+    msg_abort("lookup_addrs failed");
   }
 
 #ifdef NEXUS_DEBUG
@@ -562,12 +562,13 @@ nonroot:
 }
 
 static void discover_remote_info(nexus_ctx_t nctx, char* hgaddr_in) {
-  hg_addr_t self;
   int ret;
   pthread_t bgthread; /* network background thread */
   bgthread_dat_t bgarg;
-  char hgaddr_out[TMPADDRSZ];  // resolved HG server uri
-  hg_size_t outsz;
+  hg_addr_t hgaddr_self;
+  char hgaddr_out[TMPADDRSZ]; /* fully resolved address as a string */
+  hg_size_t hgaddr_sz;
+  hg_return_t hret;
 
   /* Find node IDs, number of nodes and broadcast them */
   if (nctx->grank == nctx->lroot) {
@@ -587,65 +588,69 @@ static void discover_remote_info(nexus_ctx_t nctx, char* hgaddr_in) {
 
   nctx->hg_remote = (nexus_hg_t*)malloc(sizeof(nexus_hg_t));
   memset(nctx->hg_remote, 0, sizeof(nexus_hg_t));
-  /* Initialize remote Mercury listening endpoints */
   nctx->hg_remote->hg_cl = HG_Init(hgaddr_in, HG_TRUE);
   if (!nctx->hg_remote->hg_cl) {
-    msg_abort("nx::remote::HG_Init");
+    msg_abort("net:HG_Init");
   }
   nctx->hg_remote->hg_ctx = HG_Context_create(nctx->hg_remote->hg_cl);
   if (!nctx->hg_remote->hg_ctx) {
-    msg_abort("nx::remote::HG_Context_create");
+    msg_abort("net:HG_Context_create");
   }
 
   nctx->hg_remote->refs = 1;
-  /* Start the network thread */
+  /* start the network thread */
   bgarg.hgctx = nctx->hg_remote->hg_ctx;
   bgarg.bgdone = 0;
 
   ret = pthread_create(&bgthread, NULL, nexus_bgthread, (void*)&bgarg);
   if (ret != 0) msg_abort("pthread_create");
 
-  /* convert input addr spec to final to get port number used */
-  if (HG_Addr_self(nctx->hg_remote->hg_cl, &self) != HG_SUCCESS)
-    msg_abort("nx::remote::HG_Addr_self");
-  outsz = sizeof(hgaddr_out);
-  if (HG_Addr_to_string(nctx->hg_remote->hg_cl, hgaddr_out, &outsz, self) !=
-      HG_SUCCESS)
-    msg_abort("nx::remote::HG_Addr_to_string");
-  HG_Addr_free(nctx->hg_remote->hg_cl, self);
-
+  /* obtain the final self-address */
+  hret = HG_Addr_self(nctx->hg_remote->hg_cl, &hgaddr_self);
+  if (hret != HG_SUCCESS) {
+    msg_abort("net:HG_Addr_self");
+  }
+  hgaddr_sz = sizeof(hgaddr_out);
+  hret = HG_Addr_to_string(nctx->hg_remote->hg_cl, hgaddr_out, &hgaddr_sz,
+                           hgaddr_self);
+  if (hret != HG_SUCCESS) {
+    msg_abort("net:HG_Addr_to_string");
+  }
+  HG_Addr_free(nctx->hg_remote->hg_cl, hgaddr_self);
   find_remote_addrs(nctx, hgaddr_out);
 
-  /* Sync before terminating background threads */
+  /* terminate the network thread */
   MPI_Barrier(MPI_COMM_WORLD);
-
-  /* Terminate network thread */
   bgarg.bgdone = 1;
+
   pthread_join(bgthread, NULL);
 }
 
-nexus_ctx_t nexus_bootstrap_uri(char* uri) {
+static nexus_ctx_t nexus_bootstrap_internal(char* uri, char* subnet,
+                                            char* proto) {
   nexus_ctx_t nctx = NULL;
+  char hgaddr[TMPADDRSZ]; /* server uri buffer */
 
-  /* Allocate context */
   nctx = new nexus_ctx;
-  if (!nctx) return NULL;
 
-  /* Grab MPI rank info */
   MPI_Comm_rank(MPI_COMM_WORLD, &(nctx->grank));
   MPI_Comm_size(MPI_COMM_WORLD, &(nctx->gsize));
 
-  if (!nctx->grank) fprintf(stdout, "<nexus>: started bootstrap\n");
+  if (!nctx->grank) fprintf(stdout, "NX: starting...\n");
 
   nexus_init_localcomm(nctx);
   discover_local_info(nctx);
 
-  if (!nctx->grank) fprintf(stdout, "<nexus>: done local info discovery\n");
+  if (!nctx->grank) fprintf(stdout, "NX: LOCAL DONE\n");
 
+  if (!uri) {
+    prepare_addr(nctx, subnet, proto, hgaddr);
+    uri = hgaddr;
+  }
   nexus_init_repcomm(nctx);
   discover_remote_info(nctx, uri);
 
-  if (!nctx->grank) fprintf(stdout, "<nexus>: done remote info discovery\n");
+  if (!nctx->grank) fprintf(stdout, "NX: REMOTE DONE\n");
 
 #ifdef NEXUS_DEBUG
   fprintf(stdout, "[%d] grank = %d, lrank = %d, gsize = %d, lsize = %d\n",
@@ -655,37 +660,12 @@ nexus_ctx_t nexus_bootstrap_uri(char* uri) {
   return nctx;
 }
 
+nexus_ctx_t nexus_bootstrap_uri(char* uri) {
+  return nexus_bootstrap_internal(uri, NULL, NULL);
+}
+
 nexus_ctx_t nexus_bootstrap(char* subnet, char* proto) {
-  nexus_ctx_t nctx = NULL;
-  char hgaddr[TMPADDRSZ];  // HG server uri
-
-  /* Allocate context */
-  nctx = new nexus_ctx;
-  if (!nctx) return NULL;
-
-  /* Grab MPI rank info */
-  MPI_Comm_rank(MPI_COMM_WORLD, &(nctx->grank));
-  MPI_Comm_size(MPI_COMM_WORLD, &(nctx->gsize));
-
-  if (!nctx->grank) fprintf(stdout, "<nexus>: started bootstrap\n");
-
-  nexus_init_localcomm(nctx);
-  discover_local_info(nctx);
-
-  if (!nctx->grank) fprintf(stdout, "<nexus>: done local info discovery\n");
-
-  prepare_addr(nctx, subnet, proto, hgaddr);
-  nexus_init_repcomm(nctx);
-  discover_remote_info(nctx, hgaddr);
-
-  if (!nctx->grank) fprintf(stdout, "<nexus>: done remote info discovery\n");
-
-#ifdef NEXUS_DEBUG
-  fprintf(stdout, "[%d] grank = %d, lrank = %d, gsize = %d, lsize = %d\n",
-          nctx->grank, nctx->grank, nctx->lrank, nctx->gsize, nctx->lsize);
-#endif /* NEXUS_DEBUG */
-
-  return nctx;
+  return nexus_bootstrap_internal(NULL, subnet, proto);
 }
 
 void nexus_destroy(nexus_ctx_t nctx) {
