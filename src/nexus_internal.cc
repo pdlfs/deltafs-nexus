@@ -393,10 +393,11 @@ void nx_setup_local_via_remote(nexus_ctx_t nctx) {
 }
 
 /*
- * nx_setup_local: setup the local network substrate using a local-optimized
+ * nx_setup_local: setup the local network substrate with a local-optimized
  * communication mechanism (e.g. shared memory). if the local mechanism if
- * bypassed (NEXUS_BYPASS_LOCAL), the local substrate will be initialized
- * partially and nx_setup_local_via_remote must be called later to finish the
+ * bypassed (NEXUS_BYPASS_LOCAL), the local substrate will be built on top of
+ * the remote substrate and will only be initialized partially at this point. as
+ * a result, nx_setup_local_via_remote must be called later to finish the
  * remaining work after nx_discover_remote is done.
  */
 void nx_setup_local(nexus_ctx_t nctx) {
@@ -547,7 +548,7 @@ void nx_find_remote_addrs(nexus_ctx_t nctx, char* myaddr) {
   nodelists = (int*)malloc(sizeof(int) * (maxnodesz + 1) * nctx->nodesz);
   if (!nodelists) nx_fatal("malloc failed");
 
-  if (nctx->grank != nctx->lroot) goto nonroot;
+  if (nctx->repcomm == MPI_COMM_NULL) goto nonroot;
 
   /* Step 3: construct local node list */
   msgdata = (int*)malloc(sizeof(int) * (maxnodesz + 1));
@@ -675,7 +676,7 @@ void nx_discover_remote(nexus_ctx_t nctx, char* hgaddr_in) {
   hg_return_t hret;
 
   nx_init_repcomm(nctx);
-  if (nctx->grank == nctx->lroot) {
+  if (nctx->repcomm != MPI_COMM_NULL) {
     MPI_Comm_rank(nctx->repcomm, &nctx->nodeid);
     MPI_Comm_size(nctx->repcomm, &nctx->nodesz);
   }
@@ -739,8 +740,6 @@ nexus_ctx_t nx_bootstrap_internal(char* uri, char* subnet, char* proto) {
   MPI_Comm_rank(MPI_COMM_WORLD, &nctx->grank);
   MPI_Comm_size(MPI_COMM_WORLD, &nctx->gsize);
 
-  if (!nctx->grank) fprintf(stdout, "NX: starting...\n");
-
   nx_setup_local(nctx);
 
   if (!nctx->grank) fprintf(stdout, "NX: LOCAL DONE\n");
@@ -799,6 +798,9 @@ void nexus_destroy(nexus_ctx_t nctx) {
   }
 
   MPI_Barrier(MPI_COMM_WORLD);
+  if (nctx->repcomm != MPI_COMM_NULL) {
+    MPI_Comm_free(&nctx->repcomm);
+  }
   assert(nctx->hg_remote->refs > 0);
   nctx->hg_remote->refs--;
   if (nctx->hg_remote->refs == 0) {
@@ -807,10 +809,9 @@ void nexus_destroy(nexus_ctx_t nctx) {
     free(nctx->hg_remote);
   }
 
-  if (nctx->nodesz > 1) free(nctx->node2rep);
+  if (nctx->node2rep) free(nctx->node2rep);
   free(nctx->local2global);
   free(nctx->rank2node);
-  MPI_Comm_free(&nctx->repcomm);
   delete nctx;
 }
 

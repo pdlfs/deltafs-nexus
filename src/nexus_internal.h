@@ -116,8 +116,8 @@ static void nx_init_localcomm(nexus_ctx_t nctx) {
 
 static void nx_init_repcomm(nexus_ctx_t nctx) {
 #if MPI_VERSION >= 3
-  int ret = MPI_Comm_split(MPI_COMM_WORLD, (nctx->grank == nctx->lroot),
-                           nctx->grank, &nctx->repcomm);
+  int color = (nctx->grank == nctx->lroot) ? 1 : MPI_UNDEFINED;
+  int ret = MPI_Comm_split(MPI_COMM_WORLD, color, nctx->grank, &nctx->repcomm);
   if (ret != MPI_SUCCESS) {
     nx_fatal("MPI_Comm_split_type");
   }
