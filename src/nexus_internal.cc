@@ -286,13 +286,13 @@ err:
 void nx_dump_addrs(nexus_ctx_t nctx, hg_class_t* hgcl, const char* map_name,
                    nexus_map_t* map) {
   char addr[TMPADDRSZ];
-  hg_size_t addr_size = 0;
+  hg_size_t addr_sz = 0;
   hg_return_t hret;
 
   nexus_map_t::iterator it = map->begin();
   for (; it != map->end(); ++it) {
-    addr_size = sizeof(addr);
-    hret = HG_Addr_to_string(hgcl, addr, &addr_size, it->second);
+    addr_sz = sizeof(addr);
+    hret = HG_Addr_to_string(hgcl, addr, &addr_sz, it->second);
     if (hret != HG_SUCCESS) {
       strcpy(addr, "n/a");
     }
@@ -302,11 +302,10 @@ void nx_dump_addrs(nexus_ctx_t nctx, hg_class_t* hgcl, const char* map_name,
 }
 
 /*
- * nx_discover_local_via_remote: finish setting up the local transport layer by
- * establishing it upon the remote transport layer. must be called after
- * nx_discover_local and nx_discover_remote.
+ * nx_setup_local_via_remote: setup the local network substrate by reusing the
+ * remote substrate. must be called after nx_setup_local and nx_discover_remote.
  */
-void nx_discover_local_via_remote(nexus_ctx_t nctx) {
+void nx_setup_local_via_remote(nexus_ctx_t nctx) {
   int ret, buf_sz;
   hg_addr_t addr_self;
   hg_size_t addr_sz;
@@ -394,16 +393,16 @@ void nx_discover_local_via_remote(nexus_ctx_t nctx) {
 }
 
 /*
- * nx_discover_local: setup the local transport layer using a local-optimized
+ * nx_setup_local: setup the local network substrate using a local-optimized
  * communication mechanism (e.g. shared memory). if the local mechanism if
- * bypassed (NEXUS_BYPASS_LOCAL), the layer will be initialized partially
- * and nx_discover_local_via_remote must be called later to finish the
- * remain initialization work after nx_discover_remote is done.
+ * bypassed (NEXUS_BYPASS_LOCAL), the local substrate will be initialized
+ * partially and nx_setup_local_via_remote must be called later to finish the
+ * remaining work after nx_discover_remote is done.
  */
-void nx_discover_local(nexus_ctx_t nctx) {
+void nx_setup_local(nexus_ctx_t nctx) {
   char* nx_alt_proto;
   int ret, buf_sz;
-  char hgaddr[TMPADDRSZ];
+  char addr[TMPADDRSZ];
   xchg_dat_t *xitm, *xarr;
   hg_return_t hret;
   pthread_t bgthread; /* network bg thread */
@@ -412,27 +411,27 @@ void nx_discover_local(nexus_ctx_t nctx) {
   nx_init_localcomm(nctx);
   MPI_Comm_rank(nctx->localcomm, &nctx->lrank);
   MPI_Comm_size(nctx->localcomm, &nctx->lsize);
-  memset(hgaddr, 0, sizeof(hgaddr));
+  memset(addr, 0, sizeof(addr));
   nctx->hg_local = NULL;
 
   if (!nx_is_envset("NEXUS_BYPASS_LOCAL")) {
     /* use an alternate local protocol if requested */
     nx_alt_proto = getenv("NEXUS_ALT_LOCAL");
     if (nx_alt_proto && strcmp(nx_alt_proto, "na+sm") != 0) {
-      snprintf(hgaddr, sizeof(hgaddr), "%s://127.0.0.1:%d", nx_alt_proto,
+      snprintf(addr, sizeof(addr), "%s://127.0.0.1:%d", nx_alt_proto,
                19000 + nctx->lrank);
     } else {
-      snprintf(hgaddr, sizeof(hgaddr), "na+sm://%d/0", getpid());
+      snprintf(addr, sizeof(addr), "na+sm://%d/0", getpid());
     }
 
 #ifdef NEXUS_DEBUG
-    fprintf(stderr, "NX-%d: LO %s\n", nctx->grank, hgaddr);
+    fprintf(stderr, "NX-%d: LO %s\n", nctx->grank, addr);
 #endif
 
     nctx->hg_local = (nexus_hg_t*)malloc(sizeof(nexus_hg_t));
     memset(nctx->hg_local, 0, sizeof(nexus_hg_t));
     nctx->hg_local->refs = 1;
-    nctx->hg_local->hg_cl = HG_Init(hgaddr, HG_TRUE);
+    nctx->hg_local->hg_cl = HG_Init(addr, HG_TRUE);
     if (!nctx->hg_local->hg_cl) {
       nx_fatal("lo:HG_Init");
     }
@@ -443,7 +442,7 @@ void nx_discover_local(nexus_ctx_t nctx) {
   }
 
   /* determine the max address size for local comm */
-  buf_sz = strlen(hgaddr) + 1;
+  buf_sz = strlen(addr) + 1;
   MPI_Allreduce(&buf_sz, &nctx->laddrsz, 1, MPI_INT, MPI_MAX, nctx->localcomm);
   buf_sz = sizeof(xchg_dat_t) + nctx->laddrsz;
 
@@ -452,7 +451,7 @@ void nx_discover_local(nexus_ctx_t nctx) {
   if (!xitm) nx_fatal("malloc failed");
   xitm->grank = nctx->grank;
   xitm->idx = nctx->lrank;
-  strcpy(xitm->addr, hgaddr);
+  strcpy(xitm->addr, addr);
 
   xarr = (xchg_dat_t*)malloc(nctx->lsize * buf_sz);
   if (!xarr) nx_fatal("malloc failed");
@@ -742,7 +741,7 @@ nexus_ctx_t nx_bootstrap_internal(char* uri, char* subnet, char* proto) {
 
   if (!nctx->grank) fprintf(stdout, "NX: starting...\n");
 
-  nx_discover_local(nctx);
+  nx_setup_local(nctx);
 
   if (!nctx->grank) fprintf(stdout, "NX: LOCAL DONE\n");
 
@@ -752,7 +751,7 @@ nexus_ctx_t nx_bootstrap_internal(char* uri, char* subnet, char* proto) {
   }
   nx_discover_remote(nctx, uri);
   if (!nctx->hg_local) {
-    nx_discover_local_via_remote(nctx);
+    nx_setup_local_via_remote(nctx);
   }
 
   if (!nctx->grank) fprintf(stdout, "NX: REMOTE DONE\n");
