@@ -30,72 +30,55 @@
 
 #include "nexus_internal.h"
 
-static bool nexus_is_local(nexus_ctx_t nctx, int rank, hg_addr_t* addr) {
-  nexus_map_t::iterator it;
+#include <assert.h>
 
-  it = nctx->laddrs.find(rank);
-  if (it != nctx->laddrs.end()) {
-    *addr = it->second;
-    return true;
+static hg_addr_t nexus_addr_get(nexus_map_t* map, int key) {
+  nexus_map_t::iterator it;
+  if ((it = map->find(key)) != map->end()) {
+    return it->second;
   }
-
-  return false;
-}
-
-static hg_addr_t nexus_get_addr(nexus_map_t map, int key) {
-  nexus_map_t::iterator it;
-
-  it = map.find(key);
-  if (it != map.end()) return it->second;
-
   return HG_ADDR_NULL;
 }
 
 nexus_ret_t nexus_next_hop(nexus_ctx_t nctx, int dest, int* rank,
                            hg_addr_t* addr) {
   int srcrep, destrep;
-  int ndest;
+  int destn;
   nexus_map_t::iterator it;
+  assert(nctx != NULL);
 
-  /* If we are the dest, stop here */
+  /* stop here if we are the final hop */
   if (nctx->grank == dest) return NX_DONE;
 
-  /* If dest is local, return its address */
-  if (nexus_is_local(nctx, dest, addr)) {
-    if (rank) *rank = dest;
+  /* if dest is local we return its local address */
+  if ((*addr = nexus_addr_get(&nctx->laddrs, dest)) != HG_ADDR_NULL) {
+    if (rank) *rank = dest; /* the next stop is the final dest */
+    /* we are either the original src, or a dest rep */
     return NX_ISLOCAL;
   }
 
-  /*
-   * To find src rep get node ID for destination, modulo with
-   * lsize to get lrank, and then convert local to global rank
-   */
-  ndest = nctx->rank2node[dest];
-  srcrep = nctx->local2global[(ndest % nctx->lsize)];
-  /*
-   * To find dest rep get node ID for destination, and look it
-   * up in node2rep
-   */
-  destrep = nctx->node2rep[ndest];
+  /* dest >> dest node */
+  destn = nctx->rank2node[dest];
+  /* dest node >> src rep's global rank */
+  srcrep = nctx->local2global[(destn % nctx->lsize)];
+  /* dest node >> dest rep's global rank */
+  destrep = nctx->node2rep[destn];
 #ifdef NEXUS_DEBUG
-  fprintf(stdout, "[%d] nexus_next_hop: ndest=%d, srcrep=%d, destrep=%d\n",
-          nctx->grank, ndest, srcrep, destrep);
+  fprintf(stdout, "[%d] NX: destnode=%d, srcrep=%d, destrep=%d\n", nctx->grank,
+          destn, srcrep, destrep);
 #endif
 
-  /* Are we the src or the srcrep? */
   if (nctx->grank != srcrep) {
-    /* We are the src. Find srcrep address and return it */
-    *addr = nexus_get_addr(nctx->laddrs, srcrep);
+    *addr = nexus_addr_get(&nctx->laddrs, srcrep);
     if (*addr == HG_ADDR_NULL) return NX_NOTFOUND;
-    if (rank) *rank = srcrep;
-
+    if (rank) *rank = srcrep; /* the next stop is src rep */
+    /* we are the original src */
     return NX_SRCREP;
   } else {
-    /* We are the srcrep. Find destrep address and return it */
-    *addr = nexus_get_addr(nctx->gaddrs, ndest);
+    *addr = nexus_addr_get(&nctx->gaddrs, destn);
     if (*addr == HG_ADDR_NULL) return NX_NOTFOUND;
-    if (rank) *rank = destrep;
-
+    if (rank) *rank = destrep; /* the next stop is the dest rep */
+    /* we are the src rep */
     return NX_DESTREP;
   }
 
@@ -107,28 +90,36 @@ nexus_ret_t nexus_set_grank(nexus_ctx_t nctx, int rank) {
   return NX_SUCCESS;
 }
 
-nexus_ret_t nexus_global_barrier(nexus_ctx_t nctx) {
-  int rv;
-
-  rv = MPI_Barrier(MPI_COMM_WORLD);
-  if (rv != MPI_SUCCESS) return NX_ERROR;
-
-  return NX_SUCCESS;
+int nexus_global_rank(nexus_ctx_t nctx) {
+  assert(nctx != NULL);
+  return nctx->grank;
 }
 
-int nexus_global_rank(nexus_ctx_t nctx) { return nctx->grank; }
+int nexus_global_size(nexus_ctx_t nctx) {
+  assert(nctx != NULL);
+  return nctx->gsize;
+}
 
-int nexus_global_size(nexus_ctx_t nctx) { return nctx->gsize; }
+int nexus_local_rank(nexus_ctx_t nctx) {
+  assert(nctx != NULL);
+  return nctx->lrank;
+}
+
+int nexus_local_size(nexus_ctx_t nctx) {
+  assert(nctx != NULL);
+  return nctx->lsize;
+}
+
+nexus_ret_t nexus_global_barrier(nexus_ctx_t nctx) {
+  assert(nctx != NULL);
+  int rv = MPI_Barrier(MPI_COMM_WORLD);
+  if (rv != MPI_SUCCESS) return NX_ERROR;
+  return NX_SUCCESS;
+}
 
 nexus_ret_t nexus_local_barrier(nexus_ctx_t nctx) {
-  int rv;
-
-  rv = MPI_Barrier(nctx->localcomm);
+  assert(nctx != NULL);
+  int rv = MPI_Barrier(nctx->localcomm);
   if (rv != MPI_SUCCESS) return NX_ERROR;
-
   return NX_SUCCESS;
 }
-
-int nexus_local_rank(nexus_ctx_t nctx) { return nctx->lrank; }
-
-int nexus_local_size(nexus_ctx_t nctx) { return nctx->lsize; }

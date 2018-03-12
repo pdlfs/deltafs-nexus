@@ -31,10 +31,10 @@
 
 #include <errno.h>
 #include <mpi.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <cstdio>
 
 #include "deltafs-nexus_api.h"
 
