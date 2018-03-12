@@ -675,7 +675,7 @@ void nx_discover_remote(nexus_ctx_t nctx, char* hgaddr_in) {
   hg_size_t hgaddr_sz;
   hg_return_t hret;
 
-  /* Find node IDs, number of nodes and broadcast them */
+  nx_init_repcomm(nctx);
   if (nctx->grank == nctx->lroot) {
     MPI_Comm_rank(nctx->repcomm, &nctx->nodeid);
     MPI_Comm_size(nctx->repcomm, &nctx->nodesz);
@@ -733,7 +733,7 @@ void nx_discover_remote(nexus_ctx_t nctx, char* hgaddr_in) {
 
 nexus_ctx_t nx_bootstrap_internal(char* uri, char* subnet, char* proto) {
   nexus_ctx_t nctx = NULL;
-  char hgaddr[TMPADDRSZ]; /* server uri buffer */
+  char addr[TMPADDRSZ]; /* server uri buffer */
 
   nctx = new nexus_ctx;
 
@@ -747,11 +747,13 @@ nexus_ctx_t nx_bootstrap_internal(char* uri, char* subnet, char* proto) {
   if (!nctx->grank) fprintf(stdout, "NX: LOCAL DONE\n");
 
   if (!uri) {
-    nx_prepare_addr(nctx, subnet, proto, hgaddr);
-    uri = hgaddr;
+    nx_prepare_addr(nctx, subnet, proto, addr);
+    uri = addr;
   }
-  nx_init_repcomm(nctx);
   nx_discover_remote(nctx, uri);
+  if (!nctx->hg_local) {
+    nx_discover_local_via_remote(nctx);
+  }
 
   if (!nctx->grank) fprintf(stdout, "NX: REMOTE DONE\n");
 
@@ -783,9 +785,13 @@ void nexus_destroy(nexus_ctx_t nctx) {
 
   MPI_Barrier(nctx->localcomm);
   MPI_Comm_free(&nctx->localcomm);
-  HG_Context_destroy(nctx->hg_local->hg_ctx);
-  HG_Finalize(nctx->hg_local->hg_cl);
-  free(nctx->hg_local);
+  assert(nctx->hg_local->refs > 0);
+  nctx->hg_local->refs--;
+  if (nctx->hg_local->refs == 0) {
+    HG_Context_destroy(nctx->hg_local->hg_ctx);
+    HG_Finalize(nctx->hg_local->hg_cl);
+    free(nctx->hg_local);
+  }
 
   for (it = nctx->gaddrs.begin(); it != nctx->gaddrs.end(); it++) {
     if (it->second != HG_ADDR_NULL) {
@@ -794,9 +800,13 @@ void nexus_destroy(nexus_ctx_t nctx) {
   }
 
   MPI_Barrier(MPI_COMM_WORLD);
-  HG_Context_destroy(nctx->hg_remote->hg_ctx);
-  HG_Finalize(nctx->hg_remote->hg_cl);
-  free(nctx->hg_remote);
+  assert(nctx->hg_remote->refs > 0);
+  nctx->hg_remote->refs--;
+  if (nctx->hg_remote->refs == 0) {
+    HG_Context_destroy(nctx->hg_remote->hg_ctx);
+    HG_Finalize(nctx->hg_remote->hg_cl);
+    free(nctx->hg_remote);
+  }
 
   if (nctx->nodesz > 1) free(nctx->node2rep);
   free(nctx->local2global);
