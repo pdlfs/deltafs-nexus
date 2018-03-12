@@ -64,8 +64,8 @@ nexus_ret_t nexus_next_hop(nexus_ctx_t nctx, int dest, int* rank,
   /* dest node >> dest rep's global rank */
   destrep = nctx->node2rep[destn];
 #ifdef NEXUS_DEBUG
-  fprintf(stdout, "[%d] NX: destnode=%d, srcrep=%d, destrep=%d\n", nctx->grank,
-          destn, srcrep, destrep);
+  fprintf(stdout, "[%d] NX: dest=%d, destnode=%d, srcrep=%d, destrep=%d\n",
+          nctx->grank, dest, destn, srcrep, destrep);
 #endif
 
   if (nctx->grank != srcrep) {
