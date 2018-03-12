@@ -99,28 +99,27 @@ static void nexus_dump_addrs(nexus_ctx_t nctx, hg_class_t* hgcl,
   hg_size_t addr_size = 0;
   hg_return_t hret;
 
+  fprintf(stderr, "=== NX MAP DUMP (rank=%d) ===\n", nctx->grank);
   for (nexus_map_t::iterator it = map->begin(); it != map->end(); ++it) {
     hret = HG_Addr_to_string(hgcl, NULL, &addr_size, it->second);
     if (hret != HG_SUCCESS) {
       msg_abort("HG_Addr_to_string");
     }
     addr_str = (char*)malloc(addr_size);
-    if (addr_str == NULL) msg_abort("malloc failed");
+    if (!addr_str) msg_abort("malloc failed");
     hret = HG_Addr_to_string(hgcl, addr_str, &addr_size, it->second);
     if (hret != HG_SUCCESS) {
       msg_abort("HG_Addr_to_string");
     }
-    fprintf(stderr, "[%d] NX MAP: %d > %s\n", nctx->grank, it->first, addr_str);
+    fprintf(stderr, "%06d %s\n", it->first, addr_str);
     free(addr_str);
   }
 }
 
 static void nexus_init_localcomm(nexus_ctx_t nctx) {
-  int ret;
-
 #if MPI_VERSION >= 3
-  ret = MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0,
-                            MPI_INFO_NULL, &nctx->localcomm);
+  int ret = MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0,
+                                MPI_INFO_NULL, &nctx->localcomm);
   if (ret != MPI_SUCCESS) {
     msg_abort("MPI_Comm_split_type");
   }
@@ -130,11 +129,9 @@ static void nexus_init_localcomm(nexus_ctx_t nctx) {
 }
 
 static void nexus_init_repcomm(nexus_ctx_t nctx) {
-  int ret;
-
 #if MPI_VERSION >= 3
-  ret = MPI_Comm_split(MPI_COMM_WORLD, (nctx->grank == nctx->lroot),
-                       nctx->grank, &nctx->repcomm);
+  int ret = MPI_Comm_split(MPI_COMM_WORLD, (nctx->grank == nctx->lroot),
+                           nctx->grank, &nctx->repcomm);
   if (ret != MPI_SUCCESS) {
     msg_abort("MPI_Comm_split_type");
   }
