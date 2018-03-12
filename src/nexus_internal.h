@@ -45,8 +45,8 @@ typedef std::map<int, hg_addr_t> nexus_map_t;
 
 /* nexus_hg_state: state for an opened mercury instance */
 typedef struct nexus_hg_state {
-  hg_class_t* hg_cl;
   hg_context_t* hg_ctx;
+  hg_class_t* hg_cl;
   int refs;
 } nexus_hg_t;
 
@@ -54,24 +54,24 @@ typedef struct nexus_hg_state {
  * nexus_ctx: nexus internal state
  */
 struct nexus_ctx {
-  int grank;   /* my global MPI rank */
+  int grank;   /* my global rank */
   int gsize;   /* total number of ranks */
-  int gaddrsz; /* Max size of global Hg address */
+  int gaddrsz; /* max string size needed for global address */
 
-  int nodeid; /* global ID of node (in repconn) */
+  int nodeid; /* global id of node */
   int nodesz; /* total number of nodes */
 
-  int lrank;   /* my local MPI rank */
+  int lrank;   /* my local rank */
   int lsize;   /* number of local ranks */
   int lroot;   /* global rank of local root */
-  int laddrsz; /* Max size of local Hg address */
+  int laddrsz; /* max string size needed for local address */
 
-  int* local2global; /* local rank -> global rank */
-  int* rank2node;    /* rank -> node ID */
-  int* node2rep;     /* node -> rep global rank */
+  int* local2global; /* local rank -> its global rank */
+  int* rank2node;    /* rank -> its node id */
+  int* node2rep;     /* node -> its rep's global rank */
 
-  nexus_map_t laddrs; /* global rank -> Hg address */
-  nexus_map_t gaddrs; /* remote node -> Hg address of our rep */
+  nexus_map_t laddrs; /* global rank -> local peer's local addresses */
+  nexus_map_t gaddrs; /* remote node -> rep's remote addresses */
 
   MPI_Comm localcomm;
   MPI_Comm repcomm;

@@ -302,27 +302,27 @@ void nx_dump_addrs(nexus_ctx_t nctx, hg_class_t* hgcl, nexus_map_t* map) {
 }
 
 void nx_discover_local(nexus_ctx_t nctx) {
-  char* nlocal;
+  char* nx_alt_proto;
   int ret, len;
   char hgaddr[TMPADDRSZ];
   xchg_dat_t *xitm, *xarr;
   hg_return_t hret;
-  pthread_t bgthread; /* network background thread */
+  pthread_t bgthread; /* network bg thread */
   bgthread_dat_t bgarg;
 
-  MPI_Comm_rank(nctx->localcomm, &(nctx->lrank));
-  MPI_Comm_size(nctx->localcomm, &(nctx->lsize));
+  MPI_Comm_rank(nctx->localcomm, &nctx->lrank);
+  MPI_Comm_size(nctx->localcomm, &nctx->lsize);
 
-  /* Initialize local Mercury listening endpoints */
-  nlocal = getenv("NEXUS_ALT_LOCAL");
-  if (nlocal) {
-    snprintf(hgaddr, sizeof(hgaddr), "%s://127.0.0.1:%d", nlocal,
+  /* use an alternate local protocol if requested */
+  nx_alt_proto = getenv("NEXUS_ALT_LOCAL");
+  if (nx_alt_proto && strcmp(nx_alt_proto, "na+sm") != 0) {
+    snprintf(hgaddr, sizeof(hgaddr), "%s://127.0.0.1:%d", nx_alt_proto,
              19000 + nctx->lrank);
   } else {
     snprintf(hgaddr, sizeof(hgaddr), "na+sm://%d/0", getpid());
   }
 #ifdef NEXUS_DEBUG
-  fprintf(stderr, "NX: LO INIT AT %s\n", hgaddr);
+  fprintf(stderr, "NX-%d: LO %s\n", nctx->grank, hgaddr);
 #endif
 
   nctx->hg_local = (nexus_hg_t*)malloc(sizeof(nexus_hg_t));
@@ -337,7 +337,7 @@ void nx_discover_local(nexus_ctx_t nctx) {
   }
 
   nctx->hg_local->refs = 1;
-  /* Start the network thread */
+  /* start the network thread */
   bgarg.hgctx = nctx->hg_local->hg_ctx;
   bgarg.bgdone = 0;
 
@@ -345,15 +345,15 @@ void nx_discover_local(nexus_ctx_t nctx) {
   if (ret != 0) nx_fatal("pthread_create");
 
   /* Find max address size in local comm */
-  len = strnlen(hgaddr, sizeof(hgaddr)) + 1;
+  len = strlen(hgaddr) + 1;
   MPI_Allreduce(&len, &nctx->laddrsz, 1, MPI_INT, MPI_MAX, nctx->localcomm);
   len = sizeof(xchg_dat_t) + nctx->laddrsz;
 
-  /* Exchange addresses, global, and local ranks in local comm */
+  /* exchange addresses, global, and local ranks in local comm */
   xitm = (xchg_dat_t*)malloc(len);
   if (!xitm) nx_fatal("malloc failed");
 
-  /* For local2global our index is lrank */
+  /* for local2global our index is lrank */
   xitm->grank = nctx->grank;
   xitm->idx = nctx->lrank;
   strncpy(xitm->addr, hgaddr, nctx->laddrsz);
@@ -365,37 +365,35 @@ void nx_discover_local(nexus_ctx_t nctx) {
   if (!nctx->local2global) nx_fatal("malloc failed");
 
   MPI_Allgather(xitm, len, MPI_BYTE, xarr, len, MPI_BYTE, nctx->localcomm);
-  free(xitm);
 
-  /* Build map of local to global ranks, find local root */
+  /* build the map of local to global ranks, also decide the local root */
   for (int i = 0; i < nctx->lsize; i++) {
     xchg_dat_t* xi = (xchg_dat_t*)(((char*)xarr) + i * len);
 
     nctx->local2global[xi->idx] = xi->grank;
     if (xi->idx == 0) nctx->lroot = xi->grank;
 
-    /* For lookups our index is the grank, so switch */
+    /* for lookups our index is the grank */
     xi->idx = xi->grank;
   }
 
-  /* Look up local Mercury addresses */
+  /* obtain opaque mercury addresses */
   hret = nx_lookup_addrs(nctx, nctx->hg_local->hg_ctx, nctx->hg_local->hg_cl,
                          xarr, nctx->lsize, nctx->laddrsz, &nctx->laddrs);
   if (hret != HG_SUCCESS) {
-    nx_fatal("lookup_addrs failed");
+    nx_fatal("lo:HG_Addr_lookup");
   }
 
 #ifdef NEXUS_DEBUG
   nx_dump_addrs(nctx, nctx->hg_local->hg_cl, &nctx->laddrs);
 #endif
 
-  /* Sync before terminating background threads */
   MPI_Barrier(nctx->localcomm);
 
-  /* Terminate network thread */
   bgarg.bgdone = 1;
   pthread_join(bgthread, NULL);
   free(xarr);
+  free(xitm);
 }
 
 #define NADDR(x, y, s) (&x[y * s])
@@ -631,8 +629,8 @@ nexus_ctx_t nx_bootstrap_internal(char* uri, char* subnet, char* proto) {
 
   nctx = new nexus_ctx;
 
-  MPI_Comm_rank(MPI_COMM_WORLD, &(nctx->grank));
-  MPI_Comm_size(MPI_COMM_WORLD, &(nctx->gsize));
+  MPI_Comm_rank(MPI_COMM_WORLD, &nctx->grank);
+  MPI_Comm_size(MPI_COMM_WORLD, &nctx->gsize);
 
   if (!nctx->grank) fprintf(stdout, "NX: starting...\n");
 
