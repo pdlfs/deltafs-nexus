@@ -93,6 +93,15 @@ static inline void nx_fatal(const char* msg) {
   abort();
 }
 
+/*
+ * nx_is_envset: check if an env is set
+ */
+static bool nx_is_envset(const char* name) {
+  char* env = getenv(name);
+  if (!env || !env[0]) return false;
+  return strcmp(env, "0") != 0;
+}
+
 static void nx_init_localcomm(nexus_ctx_t nctx) {
 #if MPI_VERSION >= 3
   int ret = MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0,
