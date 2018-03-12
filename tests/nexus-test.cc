@@ -53,7 +53,7 @@ static void usage(int ret)
 /*
  * msg_abort: abort with a message
  */
-static inline void msg_abort(const char* msg)
+static inline void nx_fatal(const char *msg)
 {
     if (errno != 0) {
         fprintf(stderr, "Error: %s (%s)\n", msg, strerror(errno));   
@@ -105,10 +105,10 @@ int main(int argc, char **argv)
     tctx.count = 2;
 
     if (snprintf(tctx.subnet, sizeof(tctx.subnet), "127.0.0.1") <= 0)
-        msg_abort("sprintf for subnet failed");
+      nx_fatal("sprintf for subnet failed");
 
     if (snprintf(tctx.proto, sizeof(tctx.proto), "bmi+tcp") <= 0)
-        msg_abort("sprintf for proto failed");
+      nx_fatal("sprintf for proto failed");
 
     while ((c = getopt(argc, argv, "c:t:s:h")) != -1) {
         switch(c) {

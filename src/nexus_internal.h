@@ -51,7 +51,7 @@ typedef struct nexus_hg_state {
 } nexus_hg_t;
 
 /*
- * Nexus library context
+ * nexus_ctx: nexus internal state
  */
 struct nexus_ctx {
   int grank;   /* my global MPI rank */
@@ -81,9 +81,9 @@ struct nexus_ctx {
 };
 
 /*
- * msg_abort: abort with a message
+ * nx_fatal: abort with a message
  */
-static inline void msg_abort(const char* msg) {
+static inline void nx_fatal(const char* msg) {
   if (errno != 0) {
     fprintf(stderr, "NX FATAL: %s (%s)\n", msg, strerror(errno));
   } else {
@@ -93,24 +93,24 @@ static inline void msg_abort(const char* msg) {
   abort();
 }
 
-static void nexus_init_localcomm(nexus_ctx_t nctx) {
+static void nx_init_localcomm(nexus_ctx_t nctx) {
 #if MPI_VERSION >= 3
   int ret = MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0,
                                 MPI_INFO_NULL, &nctx->localcomm);
   if (ret != MPI_SUCCESS) {
-    msg_abort("MPI_Comm_split_type");
+    nx_fatal("MPI_Comm_split_type");
   }
 #else
   msg_abort("MPI-3 required");
 #endif
 }
 
-static void nexus_init_repcomm(nexus_ctx_t nctx) {
+static void nx_init_repcomm(nexus_ctx_t nctx) {
 #if MPI_VERSION >= 3
   int ret = MPI_Comm_split(MPI_COMM_WORLD, (nctx->grank == nctx->lroot),
                            nctx->grank, &nctx->repcomm);
   if (ret != MPI_SUCCESS) {
-    msg_abort("MPI_Comm_split_type");
+    nx_fatal("MPI_Comm_split_type");
   }
 #else
   msg_abort("MPI-3 required");
