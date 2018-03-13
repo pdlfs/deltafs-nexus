@@ -32,7 +32,7 @@
 
 #include <assert.h>
 
-static hg_addr_t nexus_addr_get(nexus_map_t* map, int key) {
+static hg_addr_t nx_addr_get(nexus_map_t* map, int key) {
   nexus_map_t::iterator it;
   if ((it = map->find(key)) != map->end()) {
     return it->second;
@@ -51,8 +51,8 @@ nexus_ret_t nexus_next_hop(nexus_ctx_t nctx, int dest, int* rank,
   if (nctx->grank == dest) return NX_DONE;
 
   /* if dest is local we return its local address */
-  if ((*addr = nexus_addr_get(&nctx->lmap, dest)) != HG_ADDR_NULL) {
-    if (rank) *rank = dest; /* the next stop is the final dest */
+  if ((*addr = nx_addr_get(&nctx->lmap, dest)) != HG_ADDR_NULL) {
+    *rank = dest; /* the next stop is the final dest */
     /* we are either the original src, or a dest rep */
     return NX_ISLOCAL;
   }
@@ -64,20 +64,20 @@ nexus_ret_t nexus_next_hop(nexus_ctx_t nctx, int dest, int* rank,
   /* dest node >> dest rep's global rank */
   destrep = nctx->node2rep[destn];
 #ifdef NEXUS_DEBUG
-  fprintf(stdout, "[%d] NX: dest=%d, destnode=%d, srcrep=%d, destrep=%d\n",
+  fprintf(stderr, "NX-%d: dest=%d, destnode=%d, srcrep=%d, destrep=%d\n",
           nctx->grank, dest, destn, srcrep, destrep);
 #endif
 
   if (nctx->grank != srcrep) {
-    *addr = nexus_addr_get(&nctx->lmap, srcrep);
+    *addr = nx_addr_get(&nctx->lmap, srcrep);
     if (*addr == HG_ADDR_NULL) return NX_NOTFOUND;
-    if (rank) *rank = srcrep; /* the next stop is src rep */
+    *rank = srcrep; /* the next stop is src rep */
     /* we are the original src */
     return NX_SRCREP;
   } else {
-    *addr = nexus_addr_get(&nctx->rmap, destn);
+    *addr = nx_addr_get(&nctx->rmap, destn);
     if (*addr == HG_ADDR_NULL) return NX_NOTFOUND;
-    if (rank) *rank = destrep; /* the next stop is the dest rep */
+    *rank = destrep; /* the next stop is dest rep */
     /* we are the src rep */
     return NX_DESTREP;
   }
