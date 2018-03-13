@@ -49,6 +49,9 @@ if (CMAKE_THREAD_LIBS_INIT)
   target_link_libraries (deltafs-nexus "${CMAKE_THREAD_LIBS_INIT}")
 endif ()
 
+if (NEXUS_DEBUG)
+target_compile_definitions(deltafs-nexus PRIVATE NEXUS_DEBUG)
+endif ()
 set_target_properties(deltafs-nexus
                       PROPERTIES VERSION ${DELTAFS_NEXUS_VERSION}
                       SOVERSION ${DELTAFS_NEXUS_VERSION_MAJOR})

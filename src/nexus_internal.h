@@ -39,7 +39,6 @@
 #include "deltafs-nexus_api.h"
 
 #define NEXUS_LOOKUP_LIMIT 64
-#define NEXUS_DEBUG
 
 typedef std::map<int, hg_addr_t> nexus_map_t;
 

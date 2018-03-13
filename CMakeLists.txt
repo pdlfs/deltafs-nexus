@@ -32,6 +32,7 @@ set_property (CACHE DEBUG_SANITIZER PROPERTY STRINGS
               "Off" "Address" "Thread")
 set (CMAKE_PREFIX_PATH "" CACHE STRING "External dependencies path")
 set (BUILD_SHARED_LIBS "OFF" CACHE BOOL "Build a shared library")
+set (NEXUS_DEBUG "OFF" CACHE BOOL "Enable debugging")
 
 #
 # sanitizer config (XXX: does not probe compiler to see if sanitizer flags
