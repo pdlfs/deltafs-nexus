@@ -330,6 +330,7 @@ void nx_setup_local_via_remote(nexus_ctx_t nctx) {
   if (hret != HG_SUCCESS) {
     nx_fatal("lo:HG_Addr_to_string");
   }
+  HG_Addr_free(nctx->hg_local->hg_cl, addr_self);
 
   /* determine the max address size for local comm */
   buf_sz = strlen(addr) + 1;
