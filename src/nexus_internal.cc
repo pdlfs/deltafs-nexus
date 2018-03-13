@@ -659,32 +659,37 @@ nonroot:
   }
 
 #ifdef NEXUS_DEBUG
-  nx_dump_addrs(nctx, nctx->hg_remote->hg_cl, "rmap", &nctx->gaddrs);
   fprintf(stderr, "NX-%d: npeers=%d\n", nctx->grank, npeers);
 #endif
 
   free(paddrs);
 }
 
+/*
+ * nx_discover_remote: detect remote peers and setup the remote network
+ * substrate for multi-hop routing.
+ */
 void nx_discover_remote(nexus_ctx_t nctx, char* hgaddr_in) {
   int ret;
-  pthread_t bgthread; /* network background thread */
-  bgthread_dat_t bgarg;
-  hg_addr_t hgaddr_self;
-  char hgaddr_out[TMPADDRSZ]; /* fully resolved address as a string */
-  hg_size_t hgaddr_sz;
+  hg_addr_t addr_self;
+  hg_size_t addr_sz;
+  char addr[TMPADDRSZ];
   hg_return_t hret;
+  pthread_t bgthread; /* network bg thread */
+  bgthread_dat_t bgarg;
 
   nx_init_repcomm(nctx);
   if (nctx->repcomm != MPI_COMM_NULL) {
     MPI_Comm_rank(nctx->repcomm, &nctx->nodeid);
     MPI_Comm_size(nctx->repcomm, &nctx->nodesz);
+  } else {
+    assert(nctx->grank != nctx->lroot);
   }
 
   MPI_Bcast(&nctx->nodeid, 1, MPI_INT, 0, nctx->localcomm);
   MPI_Bcast(&nctx->nodesz, 1, MPI_INT, 0, nctx->localcomm);
 
-  /* Build global rank -> node id array */
+  /* build the map of global rank to node id */
   nctx->rank2node = (int*)malloc(sizeof(int) * nctx->gsize);
   if (!nctx->rank2node) nx_fatal("malloc failed");
 
@@ -693,6 +698,7 @@ void nx_discover_remote(nexus_ctx_t nctx, char* hgaddr_in) {
 
   nctx->hg_remote = (nexus_hg_t*)malloc(sizeof(nexus_hg_t));
   memset(nctx->hg_remote, 0, sizeof(nexus_hg_t));
+  nctx->hg_remote->refs = 1;
   nctx->hg_remote->hg_cl = HG_Init(hgaddr_in, HG_TRUE);
   if (!nctx->hg_remote->hg_cl) {
     nx_fatal("net:HG_Init");
@@ -702,33 +708,38 @@ void nx_discover_remote(nexus_ctx_t nctx, char* hgaddr_in) {
     nx_fatal("net:HG_Context_create");
   }
 
-  nctx->hg_remote->refs = 1;
-  /* start the network thread */
-  bgarg.hgctx = nctx->hg_remote->hg_ctx;
-  bgarg.bgdone = 0;
-
-  ret = pthread_create(&bgthread, NULL, nx_bgthread, (void*)&bgarg);
-  if (ret != 0) nx_fatal("pthread_create");
-
-  /* obtain the final self-address */
-  hret = HG_Addr_self(nctx->hg_remote->hg_cl, &hgaddr_self);
+  /* fetch self-address */
+  hret = HG_Addr_self(nctx->hg_remote->hg_cl, &addr_self);
   if (hret != HG_SUCCESS) {
     nx_fatal("net:HG_Addr_self");
   }
-  hgaddr_sz = sizeof(hgaddr_out);
-  hret = HG_Addr_to_string(nctx->hg_remote->hg_cl, hgaddr_out, &hgaddr_sz,
-                           hgaddr_self);
+  addr_sz = sizeof(addr);
+  hret = HG_Addr_to_string(nctx->hg_remote->hg_cl, addr, &addr_sz, addr_self);
   if (hret != HG_SUCCESS) {
     nx_fatal("net:HG_Addr_to_string");
   }
-  HG_Addr_free(nctx->hg_remote->hg_cl, hgaddr_self);
-  nx_find_remote_addrs(nctx, hgaddr_out);
+  HG_Addr_free(nctx->hg_remote->hg_cl, addr_self);
 
-  /* terminate the network thread */
-  MPI_Barrier(MPI_COMM_WORLD);
-  bgarg.bgdone = 1;
+  /* pre-lookup and cache mercury addresses */
+  if (nctx->hg_remote != NULL) {
+    bgarg.hgctx = nctx->hg_remote->hg_ctx;
+    bgarg.bgdone = 0;
 
-  pthread_join(bgthread, NULL);
+    ret = pthread_create(&bgthread, NULL, nx_bgthread, (void*)&bgarg);
+    if (ret != 0) nx_fatal("pthread_create");
+
+    MPI_Barrier(MPI_COMM_WORLD);
+
+    nx_find_remote_addrs(nctx, addr);
+#ifdef NEXUS_DEBUG
+    nx_dump_addrs(nctx, nctx->hg_remote->hg_cl, "rmap", &nctx->gaddrs);
+#endif
+
+    MPI_Barrier(MPI_COMM_WORLD);
+    bgarg.bgdone = 1;
+
+    pthread_join(bgthread, NULL);
+  }
 }
 
 nexus_ctx_t nx_bootstrap_internal(char* uri, char* subnet, char* proto) {
