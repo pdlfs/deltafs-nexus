@@ -69,8 +69,8 @@ struct nexus_ctx {
   int* rank2node;    /* rank -> its node id */
   int* node2rep;     /* node -> its rep's global rank */
 
-  nexus_map_t laddrs; /* global rank -> local peer's local addresses */
-  nexus_map_t gaddrs; /* remote node -> rep's remote addresses */
+  nexus_map_t lmap; /* global rank -> local peer's local address */
+  nexus_map_t rmap; /* remote node -> rep's remote address */
 
   MPI_Comm localcomm;
   MPI_Comm repcomm;

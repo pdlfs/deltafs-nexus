@@ -49,7 +49,7 @@ nexus_iter_t nexus_iter(nexus_ctx_t nctx, int local) {
     nit = new struct nexus_iter;   /* malloc */
     nit->nctx = nctx;
     nit->islocal = (local != 0);
-    nit->mapit = (nit->islocal) ? nctx->laddrs.begin() : nctx->gaddrs.begin();
+    nit->mapit = (nit->islocal) ? nctx->lmap.begin() : nctx->rmap.begin();
     return(nit);
 }
 
@@ -68,8 +68,8 @@ void nexus_iter_free(nexus_iter_t *nitp) {
  */
 int nexus_iter_atend(nexus_iter_t nit) {
     if (nit->islocal)
-        return(nit->mapit == nit->nctx->laddrs.end());
-    return(nit->mapit == nit->nctx->gaddrs.end());
+        return(nit->mapit == nit->nctx->lmap.end());
+    return(nit->mapit == nit->nctx->rmap.end());
 }
 
 /*

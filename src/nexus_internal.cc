@@ -377,13 +377,13 @@ void nx_setup_local_via_remote(nexus_ctx_t nctx) {
     MPI_Barrier(nctx->localcomm);
 
     hret = nx_lookup_addrs(nctx, nctx->hg_local->hg_ctx, nctx->hg_local->hg_cl,
-                           xarr, nctx->lsize, nctx->laddrsz, &nctx->laddrs);
+                           xarr, nctx->lsize, nctx->laddrsz, &nctx->lmap);
     if (hret != HG_SUCCESS) {
       nx_fatal("lo:HG_Addr_lookup");
     }
 
 #ifdef NEXUS_DEBUG
-    nx_dump_addrs(nctx, nctx->hg_local->hg_cl, "lmap", &nctx->laddrs);
+    nx_dump_addrs(nctx, nctx->hg_local->hg_cl, "lmap", &nctx->lmap);
 #endif
 
     MPI_Barrier(nctx->localcomm);
@@ -490,13 +490,13 @@ void nx_setup_local(nexus_ctx_t nctx) {
     MPI_Barrier(nctx->localcomm);
 
     hret = nx_lookup_addrs(nctx, nctx->hg_local->hg_ctx, nctx->hg_local->hg_cl,
-                           xarr, nctx->lsize, nctx->laddrsz, &nctx->laddrs);
+                           xarr, nctx->lsize, nctx->laddrsz, &nctx->lmap);
     if (hret != HG_SUCCESS) {
       nx_fatal("lo:HG_Addr_lookup");
     }
 
 #ifdef NEXUS_DEBUG
-    nx_dump_addrs(nctx, nctx->hg_local->hg_cl, "lmap", &nctx->laddrs);
+    nx_dump_addrs(nctx, nctx->hg_local->hg_cl, "lmap", &nctx->lmap);
 #endif
 
     MPI_Barrier(nctx->localcomm);
@@ -561,8 +561,8 @@ void nx_find_remote_addrs(nexus_ctx_t nctx, char* myaddr) {
 
   i = 1;
   msgdata[0] = nctx->lsize;
-  for (nexus_map_t::iterator it = nctx->laddrs.begin();
-       it != nctx->laddrs.end(); it++)
+  for (nexus_map_t::iterator it = nctx->lmap.begin(); it != nctx->lmap.end();
+       it++)
     msgdata[i++] = it->first;
 
   /* Step 4: exchange local node lists */
@@ -658,7 +658,7 @@ nonroot:
 
   /* Step 2: lookup peer addresses */
   hret = nx_lookup_addrs(nctx, nctx->hg_remote->hg_ctx, nctx->hg_remote->hg_cl,
-                         paddrs, npeers, nctx->gaddrsz, &nctx->gaddrs);
+                         paddrs, npeers, nctx->gaddrsz, &nctx->rmap);
   if (hret != HG_SUCCESS) {
     nx_fatal("net:HG_Addr_lookup");
   }
@@ -738,7 +738,7 @@ void nx_discover_remote(nexus_ctx_t nctx, char* hgaddr_in) {
 
     nx_find_remote_addrs(nctx, addr);
 #ifdef NEXUS_DEBUG
-    nx_dump_addrs(nctx, nctx->hg_remote->hg_cl, "rmap", &nctx->gaddrs);
+    nx_dump_addrs(nctx, nctx->hg_remote->hg_cl, "rmap", &nctx->rmap);
 #endif
 
     MPI_Barrier(MPI_COMM_WORLD);
@@ -792,7 +792,7 @@ nexus_ctx_t nexus_bootstrap(char* subnet, char* proto) {
 void nexus_destroy(nexus_ctx_t nctx) {
   nexus_map_t::iterator it;
 
-  for (it = nctx->laddrs.begin(); it != nctx->laddrs.end(); it++) {
+  for (it = nctx->lmap.begin(); it != nctx->lmap.end(); ++it) {
     if (it->second != HG_ADDR_NULL) {
       HG_Addr_free(nctx->hg_local->hg_cl, it->second);
     }
@@ -808,7 +808,7 @@ void nexus_destroy(nexus_ctx_t nctx) {
     free(nctx->hg_local);
   }
 
-  for (it = nctx->gaddrs.begin(); it != nctx->gaddrs.end(); it++) {
+  for (it = nctx->rmap.begin(); it != nctx->rmap.end(); ++it) {
     if (it->second != HG_ADDR_NULL) {
       HG_Addr_free(nctx->hg_remote->hg_cl, it->second);
     }
