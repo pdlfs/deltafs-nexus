@@ -48,6 +48,7 @@ typedef struct {
 
 typedef struct {
   hg_context_t* hgctx;
+  nexus_ctx_t nctx;
   int bgdone;
 } bgthread_dat_t;
 
@@ -58,27 +59,28 @@ typedef struct {
 void* nx_bgthread(void* arg) {
   bgthread_dat_t* bgdat = (bgthread_dat_t*)arg;
   hg_return_t hret;
-
 #ifdef NEXUS_DEBUG
-  fprintf(stdout, "Network thread running\n");
+  fprintf(stdout, "NX-%d: BG UP\n", bgdat->nctx->grank);
 #endif
 
-  /* while (not done sending or not done recving */
   while (!bgdat->bgdone) {
     unsigned int count = 0;
-
     do {
       hret = HG_Trigger(bgdat->hgctx, 0, 1, &count);
     } while (hret == HG_SUCCESS && count);
 
-    if (hret != HG_SUCCESS && hret != HG_TIMEOUT)
-      nx_fatal("nexus_bgthread: HG_Trigger failed");
-
+    if (hret != HG_SUCCESS && hret != HG_TIMEOUT) {
+      nx_fatal("bg:HG_Trigger");
+    }
     hret = HG_Progress(bgdat->hgctx, 100);
-    if (hret != HG_SUCCESS && hret != HG_TIMEOUT)
-      nx_fatal("nexus_bgthread: HG_Progress failed");
+    if (hret != HG_SUCCESS && hret != HG_TIMEOUT) {
+      nx_fatal("bg:HG_Progress");
+    }
   }
 
+#ifdef NEXUS_DEBUG
+  fprintf(stdout, "NX-%d: BG DOWN\n", bgdat->nctx->grank);
+#endif
   return NULL;
 }
 
@@ -367,6 +369,7 @@ void nx_setup_local_via_remote(nexus_ctx_t nctx) {
   if (nctx->hg_local != NULL) {
     bgarg.hgctx = nctx->hg_local->hg_ctx;
     bgarg.bgdone = 0;
+    bgarg.nctx = nctx;
 
     ret = pthread_create(&bgthread, NULL, nx_bgthread, (void*)&bgarg);
     if (ret != 0) nx_fatal("pthread_create");
@@ -479,6 +482,7 @@ void nx_setup_local(nexus_ctx_t nctx) {
   if (nctx->hg_local != NULL) {
     bgarg.hgctx = nctx->hg_local->hg_ctx;
     bgarg.bgdone = 0;
+    bgarg.nctx = nctx;
 
     ret = pthread_create(&bgthread, NULL, nx_bgthread, (void*)&bgarg);
     if (ret != 0) nx_fatal("pthread_create");
@@ -539,7 +543,7 @@ void nx_find_remote_addrs(nexus_ctx_t nctx, char* myaddr) {
                 MPI_BYTE, MPI_COMM_WORLD);
 #ifdef NEXUS_DEBUG
   for (i = 0; i < nctx->gsize; i++)
-    fprintf(stderr, "[%d] rank2addr[%d] = %s\n", nctx->grank, i,
+    fprintf(stderr, "NX-%d: rank2addr[%d]=%s\n", nctx->grank, i,
             NADDR(rank2addr, i, nctx->gaddrsz));
 #endif
 
@@ -572,7 +576,7 @@ nonroot:
             0, nctx->localcomm);
 #ifdef NEXUS_DEBUG
   for (i = 0; i < ((maxnodesz + 1) * nctx->nodesz); i++)
-    fprintf(stderr, "[%d] nodelists[%d] = %d\n", nctx->grank, i, nodelists[i]);
+    fprintf(stderr, "NX-%d: nodelists[%d]=%d\n", nctx->grank, i, nodelists[i]);
 #endif
 
   /*
@@ -647,8 +651,8 @@ nonroot:
     xchg_dat_t* ppeer =
         (xchg_dat_t*)(((char*)paddrs) + i * (sizeof(*ppeer) + nctx->gaddrsz));
 
-    fprintf(stderr, "[%d] i = %d, idx = %d, grank = %d, addr = %s\n",
-            nctx->grank, i, ppeer->idx, ppeer->grank, ppeer->addr);
+    fprintf(stderr, "NX-%d: peer-idx=%d, peer-grank=%d, peer-addr=%s\n",
+            nctx->grank, ppeer->idx, ppeer->grank, ppeer->addr);
   }
 #endif
 
@@ -656,7 +660,7 @@ nonroot:
   hret = nx_lookup_addrs(nctx, nctx->hg_remote->hg_ctx, nctx->hg_remote->hg_cl,
                          paddrs, npeers, nctx->gaddrsz, &nctx->gaddrs);
   if (hret != HG_SUCCESS) {
-    nx_fatal("lookup_addrs failed");
+    nx_fatal("net:HG_Addr_lookup");
   }
 
 #ifdef NEXUS_DEBUG
@@ -725,6 +729,7 @@ void nx_discover_remote(nexus_ctx_t nctx, char* hgaddr_in) {
   if (nctx->hg_remote != NULL) {
     bgarg.hgctx = nctx->hg_remote->hg_ctx;
     bgarg.bgdone = 0;
+    bgarg.nctx = nctx;
 
     ret = pthread_create(&bgthread, NULL, nx_bgthread, (void*)&bgarg);
     if (ret != 0) nx_fatal("pthread_create");
@@ -768,9 +773,9 @@ nexus_ctx_t nx_bootstrap_internal(char* uri, char* subnet, char* proto) {
   if (!nctx->grank) fprintf(stdout, "NX: REMOTE DONE\n");
 
 #ifdef NEXUS_DEBUG
-  fprintf(stdout, "[%d] grank = %d, lrank = %d, gsize = %d, lsize = %d\n",
-          nctx->grank, nctx->grank, nctx->lrank, nctx->gsize, nctx->lsize);
-#endif /* NEXUS_DEBUG */
+  fprintf(stdout, "NX-%d grank=%d, lrank=%d, gsize=%d, lsize=%d\n", nctx->grank,
+          nctx->grank, nctx->lrank, nctx->gsize, nctx->lsize);
+#endif
 
   return nctx;
 }
