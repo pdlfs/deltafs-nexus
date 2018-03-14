@@ -58,7 +58,7 @@ struct nexus_ctx {
   int gaddrsz; /* max string size needed for global address */
 
   int nodeid; /* global id of node */
-  int nodesz; /* total number of nodes */
+  int nnodes; /* total number of nodes */
 
   int lrank;   /* my local rank */
   int lsize;   /* number of local ranks */

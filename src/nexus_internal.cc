@@ -59,8 +59,9 @@ typedef struct {
 void* nx_bgthread(void* arg) {
   bgthread_dat_t* bgdat = (bgthread_dat_t*)arg;
   hg_return_t hret;
+  int r = bgdat->nctx->grank;
 #ifdef NEXUS_DEBUG
-  fprintf(stdout, "NX-%d: BG UP\n", bgdat->nctx->grank);
+  fprintf(stderr, "NX-%d: BG UP\n", r);
 #endif
 
   while (!bgdat->bgdone) {
@@ -79,7 +80,7 @@ void* nx_bgthread(void* arg) {
   }
 
 #ifdef NEXUS_DEBUG
-  fprintf(stdout, "NX-%d: BG DOWN\n", bgdat->nctx->grank);
+  fprintf(stderr, "NX-%d: BG DOWN\n", r);
 #endif
   return NULL;
 }
@@ -144,7 +145,7 @@ void nx_prepare_addr(nexus_ctx_t nctx, char* subnet, char* proto, char* uri) {
       addr.sin_family = AF_INET;
       addr.sin_addr.s_addr = INADDR_ANY;
       addr.sin_port = htons(port);
-      n = bind(so, (struct sockaddr*)&addr, sizeof(addr));
+      n = bind(so, (struct sockaddr*)&addr, addr_len);
       if (n == 0) break;
     }
     close(so);
@@ -156,10 +157,6 @@ void nx_prepare_addr(nexus_ctx_t nctx, char* subnet, char* proto, char* uri) {
     /* set port 0, let OS fill it, collect later w/HG_Addr_to_string */
     sprintf(uri, "%s://%s:0", proto, ip);
   }
-
-#ifdef NEXUS_DEBUG
-  fprintf(stdout, "Info: Using address %s\n", uri);
-#endif
 }
 
 struct hg_lookup_ctx {
@@ -228,18 +225,11 @@ send_again:
     /* Populate out struct */
     out[eff_i].hret = HG_SUCCESS;
     out[eff_i].idx = xi->idx;
-
-#ifdef NEXUS_DEBUG
-    fprintf(stderr, "[%d] Idx %d: addr %s, idx %d, grank %d (xsize = %d)\n",
-            nctx->grank, eff_i, xi->addr, xi->idx, xi->grank, xsize);
-#endif
-
     if (xi->grank != nctx->grank) {
       hret = HG_Addr_lookup(hgctx, &nx_lookup_cb, &out[eff_i], xi->addr,
                             HG_OP_ID_IGNORE);
     } else {
       hret = HG_Addr_self(hgcl, &self_addr);
-
       /* Add address to map */
       if (hret != HG_SUCCESS)
         (*(lkp.map))[xi->idx] = HG_ADDR_NULL;
@@ -419,7 +409,11 @@ void nx_setup_local(nexus_ctx_t nctx) {
   memset(addr, 0, sizeof(addr));
   nctx->hg_local = NULL;
 
-  if (!nx_is_envset("NEXUS_BYPASS_LOCAL")) {
+  if (nx_is_envset("NEXUS_BYPASS_LOCAL")) {
+#ifdef NEXUS_DEBUG
+    fprintf(stderr, "NX-%d: LOCAL BYPASSED\n", nctx->grank);
+#endif
+  } else {
     /* use an alternate local protocol if requested */
     nx_alt_proto = getenv("NEXUS_ALT_LOCAL");
     if (nx_alt_proto && strcmp(nx_alt_proto, "na+sm") != 0) {
@@ -430,7 +424,7 @@ void nx_setup_local(nexus_ctx_t nctx) {
     }
 
 #ifdef NEXUS_DEBUG
-    fprintf(stderr, "NX-%d: LO %s\n", nctx->grank, addr);
+    fprintf(stderr, "NX-%d: LOCAL %s\n", nctx->grank, addr);
 #endif
 
     nctx->hg_local = (nexus_hg_t*)malloc(sizeof(nexus_hg_t));
@@ -519,7 +513,7 @@ void nx_find_remote_addrs(nexus_ctx_t nctx, char* myaddr) {
   hg_return_t hret;
 
   /* If we're alone stop here */
-  if (nctx->nodesz == 1) return;
+  if (nctx->nnodes == 1) return;
 
   /*
    * To find our peer on each node, we need to construct a list of ranks per
@@ -550,7 +544,7 @@ void nx_find_remote_addrs(nexus_ctx_t nctx, char* myaddr) {
   /* Step 2: find max number of ranks per node */
   MPI_Allreduce(&nctx->lsize, &maxnodesz, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
 
-  nodelists = (int*)malloc(sizeof(int) * (maxnodesz + 1) * nctx->nodesz);
+  nodelists = (int*)malloc(sizeof(int) * (maxnodesz + 1) * nctx->nnodes);
   if (!nodelists) nx_fatal("malloc failed");
 
   if (nctx->repcomm == MPI_COMM_NULL) goto nonroot;
@@ -572,10 +566,10 @@ void nx_find_remote_addrs(nexus_ctx_t nctx, char* myaddr) {
   free(msgdata);
 nonroot:
   /* Step 5: broadcast finished node lists array */
-  MPI_Bcast(nodelists, (maxnodesz + 1) * nctx->nodesz * sizeof(int), MPI_BYTE,
+  MPI_Bcast(nodelists, (maxnodesz + 1) * nctx->nnodes * sizeof(int), MPI_BYTE,
             0, nctx->localcomm);
 #ifdef NEXUS_DEBUG
-  for (i = 0; i < ((maxnodesz + 1) * nctx->nodesz); i++)
+  for (i = 0; i < ((maxnodesz + 1) * nctx->nnodes); i++)
     fprintf(stderr, "NX-%d: nodelists[%d]=%d\n", nctx->grank, i, nodelists[i]);
 #endif
 
@@ -587,16 +581,16 @@ nonroot:
 
   /* Step 1: find total number of peers */
   maxpeers =
-      (nctx->nodesz / nctx->lsize) + ((nctx->nodesz % nctx->lsize) ? 1 : 0);
+      (nctx->nnodes / nctx->lsize) + ((nctx->nnodes % nctx->lsize) ? 1 : 0);
 
   paddrs = (xchg_dat_t*)malloc(maxpeers * (sizeof(*paddrs) + nctx->gaddrsz));
   if (!paddrs) nx_fatal("malloc failed");
 
   /* Keep info on global ranks of remote reps in node2rep */
-  nctx->node2rep = (int*)malloc(sizeof(int) * nctx->nodesz);
+  nctx->node2rep = (int*)malloc(sizeof(int) * nctx->nnodes);
   if (!nctx->node2rep) nx_fatal("malloc failed");
 
-  for (i = 0; i < nctx->nodesz; i++) {
+  for (i = 0; i < nctx->nnodes; i++) {
     int idx = i * (maxnodesz + 1);
     int remote_lsize = nodelists[idx];
     nctx->node2rep[i] = nodelists[idx + 1 + (nctx->nodeid % remote_lsize)];
@@ -610,7 +604,7 @@ nonroot:
    */
   i = nctx->lrank;
   npeers = 0;
-  while (i < nctx->nodesz) {
+  while (i < nctx->nnodes) {
     int idx = i * (maxnodesz + 1);
     int remote_grank, remote_lsize;
     char* remote_addr;
@@ -686,13 +680,13 @@ void nx_discover_remote(nexus_ctx_t nctx, char* hgaddr_in) {
   nx_init_repcomm(nctx);
   if (nctx->repcomm != MPI_COMM_NULL) {
     MPI_Comm_rank(nctx->repcomm, &nctx->nodeid);
-    MPI_Comm_size(nctx->repcomm, &nctx->nodesz);
+    MPI_Comm_size(nctx->repcomm, &nctx->nnodes);
   } else {
     assert(nctx->grank != nctx->lroot);
   }
 
   MPI_Bcast(&nctx->nodeid, 1, MPI_INT, 0, nctx->localcomm);
-  MPI_Bcast(&nctx->nodesz, 1, MPI_INT, 0, nctx->localcomm);
+  MPI_Bcast(&nctx->nnodes, 1, MPI_INT, 0, nctx->localcomm);
 
   /* build the map of global rank to node id */
   nctx->rank2node = (int*)malloc(sizeof(int) * nctx->gsize);
@@ -759,7 +753,8 @@ nexus_ctx_t nx_bootstrap_internal(char* uri, char* subnet, char* proto) {
 
   nx_setup_local(nctx);
 
-  if (!nctx->grank) fprintf(stdout, "NX: LOCAL DONE\n");
+  if (!nctx->grank)
+    fprintf(stdout, "NX: LOCAL %s\n", nctx->hg_local ? "DONE" : "VIA REMOTE");
 
   if (!uri) {
     nx_prepare_addr(nctx, subnet, proto, addr);
@@ -773,8 +768,8 @@ nexus_ctx_t nx_bootstrap_internal(char* uri, char* subnet, char* proto) {
   if (!nctx->grank) fprintf(stdout, "NX: REMOTE DONE\n");
 
 #ifdef NEXUS_DEBUG
-  fprintf(stdout, "NX-%d grank=%d, lrank=%d, gsize=%d, lsize=%d\n", nctx->grank,
-          nctx->grank, nctx->lrank, nctx->gsize, nctx->lsize);
+  fprintf(stderr, "NX-%d: grank=%d, lrank=%d, gsize=%d, lsize=%d\n",
+          nctx->grank, nctx->grank, nctx->lrank, nctx->gsize, nctx->lsize);
 #endif
 
   return nctx;
