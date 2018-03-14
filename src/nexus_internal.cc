@@ -503,8 +503,6 @@ void nx_setup_local(nexus_ctx_t nctx) {
   free(xitm);
 }
 
-#define NADDR(x, y, s) (&x[y * s])
-
 void nx_find_remote_addrs(nexus_ctx_t nctx, char* myaddr) {
   int sz, i, j, M, npeers, maxpeers;
   int *msgdata, *nodelists;
@@ -514,6 +512,7 @@ void nx_find_remote_addrs(nexus_ctx_t nctx, char* myaddr) {
 
   /* if we're alone stop here */
   if (nctx->nnodes == 1) return;
+#define NADDR(x, y, s) (&x[y * s])
 
   /*
    * To find our peer on each node, we need to construct a list of ranks per
@@ -577,7 +576,7 @@ nonroot:
   for (j = 0; j < nctx->nnodes; j++)
     for (i = 1; i < M + 1; i++)
       fprintf(stderr, "NX-%d: nodelists[%d][%d]=%d\n", nctx->grank, j, i,
-              nodelists[j * i]);
+              nodelists[j * (M + 1) + i]);
 #endif
 
   /*
@@ -637,6 +636,7 @@ nonroot:
     npeers++;
   }
 
+#undef NADDR
   /* Get rid of arrays we don't need anymore */
   free(rank2addr);
   free(nodelists);
@@ -649,11 +649,10 @@ nonroot:
 
 #ifdef NEXUS_DEBUG
   for (i = 0; i < npeers; i++) {
-    xchg_dat_t* ppeer =
-        (xchg_dat_t*)(((char*)paddrs) + i * (sizeof(*ppeer) + nctx->gaddrsz));
-
-    fprintf(stderr, "NX-%d: peer-idx=%d, peer-grank=%d, peer-addr=%s\n",
-            nctx->grank, ppeer->idx, ppeer->grank, ppeer->addr);
+    xchg_dat_t* p =
+        (xchg_dat_t*)(((char*)paddrs) + i * (sizeof(*p) + nctx->gaddrsz));
+    fprintf(stderr, "NX-%d: peer[%d]=%d(addr=%s)\n", nctx->grank, p->idx,
+            p->grank, p->addr);
   }
 #endif
 
@@ -663,10 +662,6 @@ nonroot:
   if (hret != HG_SUCCESS) {
     nx_fatal("net:HG_Addr_lookup");
   }
-
-#ifdef NEXUS_DEBUG
-  fprintf(stderr, "NX-%d: npeers=%d\n", nctx->grank, npeers);
-#endif
 
   free(paddrs);
 }
