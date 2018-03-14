@@ -575,7 +575,7 @@ nonroot:
 #ifdef NEXUS_DEBUG
   for (j = 0; j < nctx->nnodes; j++)
     for (i = 1; i < M + 1; i++)
-      fprintf(stderr, "NX-%d: nodelists[%d][%d]=%d\n", nctx->grank, j, i,
+      fprintf(stderr, "NX-%d: nodelists[%d][%d]=%d\n", nctx->grank, j, i - 1,
               nodelists[j * (M + 1) + i]);
 #endif
 
@@ -651,7 +651,7 @@ nonroot:
   for (i = 0; i < npeers; i++) {
     xchg_dat_t* p =
         (xchg_dat_t*)(((char*)paddrs) + i * (sizeof(*p) + nctx->gaddrsz));
-    fprintf(stderr, "NX-%d: peer[%d]=%d(addr=%s)\n", nctx->grank, p->idx,
+    fprintf(stderr, "NX-%d: peer[%d]=%d (addr=%s)\n", nctx->grank, p->idx,
             p->grank, p->addr);
   }
 #endif
@@ -696,6 +696,10 @@ void nx_discover_remote(nexus_ctx_t nctx, char* hgaddr_in) {
 
   MPI_Allgather(&nctx->nodeid, 1, MPI_INT, nctx->rank2node, 1, MPI_INT,
                 MPI_COMM_WORLD);
+
+#ifdef NEXUS_DEBUG
+  fprintf(stderr, "NX-%d: REMOTE %s\n", nctx->grank, hgaddr_in);
+#endif
 
   nctx->hg_remote = (nexus_hg_t*)malloc(sizeof(nexus_hg_t));
   memset(nctx->hg_remote, 0, sizeof(nexus_hg_t));
@@ -770,8 +774,7 @@ nexus_ctx_t nx_bootstrap_internal(char* uri, char* subnet, char* proto) {
   if (!nctx->grank) fprintf(stdout, "NX: REMOTE DONE\n");
 
 #ifdef NEXUS_DEBUG
-  fprintf(stderr, "NX-%d: grank=%d, lrank=%d, gsize=%d, lsize=%d\n",
-          nctx->grank, nctx->grank, nctx->lrank, nctx->gsize, nctx->lsize);
+  fprintf(stderr, "NX-%d: ALL DONE\n", nctx->grank);
 #endif
 
   return nctx;
