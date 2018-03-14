@@ -506,13 +506,13 @@ void nx_setup_local(nexus_ctx_t nctx) {
 #define NADDR(x, y, s) (&x[y * s])
 
 void nx_find_remote_addrs(nexus_ctx_t nctx, char* myaddr) {
-  int i, npeers, maxnodesz, maxpeers;
+  int sz, i, j, M, npeers, maxpeers;
   int *msgdata, *nodelists;
   char* rank2addr;
   xchg_dat_t* paddrs;
   hg_return_t hret;
 
-  /* If we're alone stop here */
+  /* if we're alone stop here */
   if (nctx->nnodes == 1) return;
 
   /*
@@ -526,9 +526,9 @@ void nx_find_remote_addrs(nexus_ctx_t nctx, char* myaddr) {
    * - local roots broadcast finished array (on localcomm)
    */
 
-  /* Step 1: build rank => address array */
-  i = strlen(myaddr) + 1;
-  MPI_Allreduce(&i, &nctx->gaddrsz, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
+  /* step 1: build the map of rank to address */
+  sz = strlen(myaddr) + 1;
+  MPI_Allreduce(&sz, &nctx->gaddrsz, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
 
   rank2addr = (char*)malloc(nctx->gsize * nctx->gaddrsz);
   if (!rank2addr) nx_fatal("malloc failed");
@@ -541,36 +541,43 @@ void nx_find_remote_addrs(nexus_ctx_t nctx, char* myaddr) {
             NADDR(rank2addr, i, nctx->gaddrsz));
 #endif
 
-  /* Step 2: find max number of ranks per node */
-  MPI_Allreduce(&nctx->lsize, &maxnodesz, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
+  /* step 2: find the max number of ranks per node */
+  MPI_Allreduce(&nctx->lsize, &M, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
 
-  nodelists = (int*)malloc(sizeof(int) * (maxnodesz + 1) * nctx->nnodes);
+  nodelists = (int*)malloc(sizeof(int) * (M + 1) * nctx->nnodes);
   if (!nodelists) nx_fatal("malloc failed");
 
-  if (nctx->repcomm == MPI_COMM_NULL) goto nonroot;
+  if (nctx->repcomm == MPI_COMM_NULL) {
+    goto nonroot;
+  }
 
-  /* Step 3: construct local node list */
-  msgdata = (int*)malloc(sizeof(int) * (maxnodesz + 1));
+  /* step 3: construct my local node list */
+  msgdata = (int*)malloc(sizeof(int) * (M + 1));
   if (!msgdata) nx_fatal("malloc failed");
 
-  i = 1;
   msgdata[0] = nctx->lsize;
-  for (nexus_map_t::iterator it = nctx->lmap.begin(); it != nctx->lmap.end();
-       it++)
-    msgdata[i++] = it->first;
+  for (i = 0; i < M; i++) {
+    if (i < nctx->lsize) {
+      msgdata[i + 1] = nctx->local2global[i];
+    } else {
+      msgdata[i + 1] = -1;
+    }
+  }
 
-  /* Step 4: exchange local node lists */
-  MPI_Allgather(msgdata, maxnodesz + 1, MPI_INT, nodelists, maxnodesz + 1,
-                MPI_INT, nctx->repcomm);
+  /* step 4: exchange local node lists */
+  MPI_Allgather(msgdata, M + 1, MPI_INT, nodelists, M + 1, MPI_INT,
+                nctx->repcomm);
 
   free(msgdata);
 nonroot:
-  /* Step 5: broadcast finished node lists array */
-  MPI_Bcast(nodelists, (maxnodesz + 1) * nctx->nnodes * sizeof(int), MPI_BYTE,
-            0, nctx->localcomm);
+  /* step 5: broadcast finished node lists array */
+  MPI_Bcast(nodelists, (M + 1) * nctx->nnodes * sizeof(int), MPI_BYTE, 0,
+            nctx->localcomm);
 #ifdef NEXUS_DEBUG
-  for (i = 0; i < ((maxnodesz + 1) * nctx->nnodes); i++)
-    fprintf(stderr, "NX-%d: nodelists[%d]=%d\n", nctx->grank, i, nodelists[i]);
+  for (j = 0; j < nctx->nnodes; j++)
+    for (i = 1; i < M + 1; i++)
+      fprintf(stderr, "NX-%d: nodelists[%d][%d]=%d\n", nctx->grank, j, i,
+              nodelists[j * i]);
 #endif
 
   /*
@@ -591,7 +598,7 @@ nonroot:
   if (!nctx->node2rep) nx_fatal("malloc failed");
 
   for (i = 0; i < nctx->nnodes; i++) {
-    int idx = i * (maxnodesz + 1);
+    int idx = i * (M + 1);
     int remote_lsize = nodelists[idx];
     nctx->node2rep[i] = nodelists[idx + 1 + (nctx->nodeid % remote_lsize)];
   }
@@ -605,7 +612,7 @@ nonroot:
   i = nctx->lrank;
   npeers = 0;
   while (i < nctx->nnodes) {
-    int idx = i * (maxnodesz + 1);
+    int idx = i * (M + 1);
     int remote_grank, remote_lsize;
     char* remote_addr;
     xchg_dat_t* ppeer;
