@@ -754,6 +754,12 @@ nexus_ctx_t nx_bootstrap_internal(char* uri, char* subnet, char* proto) {
 
   nctx = new nexus_ctx;
 
+  nctx->localcomm = MPI_COMM_NULL;
+  nctx->repcomm = MPI_COMM_NULL;
+  nctx->rank2node = NULL;
+  nctx->local2global = NULL;
+  nctx->node2rep = NULL;
+
   MPI_Comm_rank(MPI_COMM_WORLD, &nctx->grank);
   MPI_Comm_size(MPI_COMM_WORLD, &nctx->gsize);
 
