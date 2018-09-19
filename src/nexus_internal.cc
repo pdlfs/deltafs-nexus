@@ -268,14 +268,14 @@ hg_return_t nx_lookup_addrs(nexus_ctx_t nctx, hg_context_t* hgctx,
     const int eff_j = (j + eff_offset) % xsize;
     if (out[eff_j].hret != HG_SUCCESS) {
       hret = out[eff_j].hret;
-      goto err;
+      break;
     }
   }
 
-err:
+  free(out);
+
   pthread_cond_destroy(&ctx.cb_cv);
   pthread_mutex_destroy(&ctx.cb_mutex);
-  free(out);
   return hret;
 }
 
