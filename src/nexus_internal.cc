@@ -192,9 +192,8 @@ hg_return_t nx_lookup_cb(const struct hg_cb_info* info) {
   return HG_SUCCESS;
 }
 
-hg_return_t nx_lookup_addrs(nexus_ctx_t nctx, hg_context_t* hgctx,
-                            hg_class_t* hgcl, xchg_dat_t* xarr, int xsize,
-                            int addrsz, nexus_map_t* map) {
+hg_return_t nx_lookup_addrs(nexus_ctx_t nctx, nexus_hg_t* hg, xchg_dat_t* xarr,
+                            int xsize, int addrsz, nexus_map_t* map) {
   struct nx_lookup_out* out;
   hg_addr_t self_addr;
   hg_return_t hret;
@@ -210,7 +209,7 @@ hg_return_t nx_lookup_addrs(nexus_ctx_t nctx, hg_context_t* hgctx,
   ctx.done = 0;
 
   /* determine if we are local, use my rank as starting point */
-  int local = (hgctx == nctx->hg_local->hg_ctx);
+  const int local = (hg == nctx->hg_local);
   int eff_offset = (local) ? nctx->lrank : nctx->grank;
   int i = 0;
 
@@ -234,12 +233,12 @@ hg_return_t nx_lookup_addrs(nexus_ctx_t nctx, hg_context_t* hgctx,
       if (xi->grank != nctx->grank) {
         pthread_mutex_unlock(&ctx.cb_mutex);
 
-        hret = HG_Addr_lookup(hgctx, &nx_lookup_cb, &out[eff_i], xi->addr,
+        hret = HG_Addr_lookup(hg->hg_ctx, &nx_lookup_cb, &out[eff_i], xi->addr,
                               HG_OP_ID_IGNORE);
 
         pthread_mutex_lock(&ctx.cb_mutex);
       } else {
-        hret = HG_Addr_self(hgcl, &self_addr);
+        hret = HG_Addr_self(hg->hg_cl, &self_addr);
 
         if (hret == HG_SUCCESS) { /* directly add address to map */
           (*(ctx.nx_map))[xi->idx] = self_addr;
@@ -373,8 +372,8 @@ void nx_setup_local_via_remote(nexus_ctx_t nctx) {
 
     MPI_Barrier(nctx->localcomm);
 
-    hret = nx_lookup_addrs(nctx, nctx->hg_local->hg_ctx, nctx->hg_local->hg_cl,
-                           xarr, nctx->lsize, nctx->laddrsz, &nctx->lmap);
+    hret = nx_lookup_addrs(nctx, nctx->hg_local, xarr, nctx->lsize,
+                           nctx->laddrsz, &nctx->lmap);
     if (hret != HG_SUCCESS) {
       nx_fatal("lo:HG_Addr_lookup");
     }
@@ -490,8 +489,8 @@ void nx_setup_local(nexus_ctx_t nctx) {
 
     MPI_Barrier(nctx->localcomm);
 
-    hret = nx_lookup_addrs(nctx, nctx->hg_local->hg_ctx, nctx->hg_local->hg_cl,
-                           xarr, nctx->lsize, nctx->laddrsz, &nctx->lmap);
+    hret = nx_lookup_addrs(nctx, nctx->hg_local, xarr, nctx->lsize,
+                           nctx->laddrsz, &nctx->lmap);
     if (hret != HG_SUCCESS) {
       nx_fatal("lo:HG_Addr_lookup");
     }
@@ -664,8 +663,8 @@ nonroot:
 #endif
 
   /* Step 2: lookup peer addresses */
-  hret = nx_lookup_addrs(nctx, nctx->hg_remote->hg_ctx, nctx->hg_remote->hg_cl,
-                         paddrs, npeers, nctx->gaddrsz, &nctx->rmap);
+  hret = nx_lookup_addrs(nctx, nctx->hg_remote, paddrs, npeers, nctx->gaddrsz,
+                         &nctx->rmap);
   if (hret != HG_SUCCESS) {
     nx_fatal("net:HG_Addr_lookup");
   }
