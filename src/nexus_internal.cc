@@ -232,8 +232,12 @@ hg_return_t nx_lookup_addrs(nexus_ctx_t nctx, hg_context_t* hgctx,
       out[eff_i].ctx = &ctx;
 
       if (xi->grank != nctx->grank) {
+        pthread_mutex_unlock(&ctx.cb_mutex);
+
         hret = HG_Addr_lookup(hgctx, &nx_lookup_cb, &out[eff_i], xi->addr,
                               HG_OP_ID_IGNORE);
+
+        pthread_mutex_lock(&ctx.cb_mutex);
       } else {
         hret = HG_Addr_self(hgcl, &self_addr);
 
