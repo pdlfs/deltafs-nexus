@@ -160,36 +160,36 @@ void nx_prepare_addr(nexus_ctx_t nctx, char* subnet, char* proto, char* uri) {
   }
 }
 
-struct hg_lookup_ctx {
-  /* The address map we'll be updating */
-  nexus_map_t* map;
+struct nx_lookup_ctx {
+  /* the address map we'll be updating */
+  nexus_map_t* nx_map;
+  /* num of ops done */
+  int done;
 
-  /* State to track progress */
-  int count;
   pthread_mutex_t cb_mutex;
   pthread_cond_t cb_cv;
-} lkp;
+};
 
-typedef struct hg_lookup_out {
+struct nx_lookup_out {
+  struct nx_lookup_ctx* ctx;
   hg_return_t hret;
   int idx;
-} hg_lookup_out_t;
+};
 
 hg_return_t nx_lookup_cb(const struct hg_cb_info* info) {
-  hg_lookup_out_t* out = (hg_lookup_out_t*)info->arg;
+  struct nx_lookup_out* const out = (struct nx_lookup_out*)info->arg;
   out->hret = info->ret;
 
-  pthread_mutex_lock(&lkp.cb_mutex);
+  pthread_mutex_lock(&out->ctx->cb_mutex);
 
-  /* Add address to map */
   if (out->hret != HG_SUCCESS)
-    (*(lkp.map))[out->idx] = HG_ADDR_NULL;
+    (*(out->ctx->nx_map))[out->idx] = HG_ADDR_NULL;
   else
-    (*(lkp.map))[out->idx] = info->info.lookup.addr;
+    (*(out->ctx->nx_map))[out->idx] = info->info.lookup.addr;
 
-  lkp.count += 1;
-  pthread_cond_signal(&lkp.cb_cv);
-  pthread_mutex_unlock(&lkp.cb_mutex);
+  out->ctx->done += 1;
+  pthread_cond_signal(&out->ctx->cb_cv);
+  pthread_mutex_unlock(&out->ctx->cb_mutex);
 
   return HG_SUCCESS;
 }
@@ -197,27 +197,27 @@ hg_return_t nx_lookup_cb(const struct hg_cb_info* info) {
 hg_return_t nx_lookup_addrs(nexus_ctx_t nctx, hg_context_t* hgctx,
                             hg_class_t* hgcl, xchg_dat_t* xarr, int xsize,
                             int addrsz, nexus_map_t* map) {
-  hg_lookup_out_t* out;
+  struct nx_lookup_out* out;
   hg_addr_t self_addr;
   hg_return_t hret;
 
-  out = (hg_lookup_out_t*)malloc(sizeof(*out) * xsize);
+  struct nx_lookup_ctx ctx;
+  out = (struct nx_lookup_out*)malloc(sizeof(*out) * xsize);
   if (out == NULL) {
     return HG_NOMEM_ERROR;
   }
 
-  lkp.count = 0;
-  lkp.map = map;
-
-  pthread_mutex_init(&lkp.cb_mutex, NULL);
-  pthread_cond_init(&lkp.cb_cv, NULL);
+  pthread_mutex_init(&ctx.cb_mutex, NULL);
+  pthread_cond_init(&ctx.cb_cv, NULL);
+  ctx.nx_map = map;
+  ctx.done = 0;
 
   /* determine if we are local, use my rank as starting point */
   int local = (hgctx == nctx->hg_local->hg_ctx);
   int eff_offset = (local) ? nctx->lrank : nctx->grank;
   int i = 0;
 
-  pthread_mutex_lock(&lkp.cb_mutex);
+  pthread_mutex_lock(&ctx.cb_mutex);
 
   while (i != xsize) {
     int remain = xsize - i;
@@ -232,6 +232,7 @@ hg_return_t nx_lookup_addrs(nexus_ctx_t nctx, hg_context_t* hgctx,
 
       out[eff_i].hret = HG_SUCCESS;
       out[eff_i].idx = xi->idx;
+      out[eff_i].ctx = &ctx;
 
       if (xi->grank != nctx->grank) {
         hret = HG_Addr_lookup(hgctx, &nx_lookup_cb, &out[eff_i], xi->addr,
@@ -241,22 +242,22 @@ hg_return_t nx_lookup_addrs(nexus_ctx_t nctx, hg_context_t* hgctx,
 
         /* directly add address to map */
         if (hret != HG_SUCCESS)
-          (*(lkp.map))[xi->idx] = HG_ADDR_NULL;
+          (*(ctx.nx_map))[xi->idx] = HG_ADDR_NULL;
         else
-          (*(lkp.map))[xi->idx] = self_addr;
+          (*(ctx.nx_map))[xi->idx] = self_addr;
 
-        lkp.count += 1;
+        ctx.done += 1;
       }
 
       i++;
     }
 
-    while (lkp.count < i) { /* ok to break out if just one slot is free? */
-      pthread_cond_wait(&lkp.cb_cv, &lkp.cb_mutex);
+    while (ctx.done < i) { /* XXX: ok to break out if just one slot is free? */
+      pthread_cond_wait(&ctx.cb_cv, &ctx.cb_mutex);
     }
   }
 
-  pthread_mutex_unlock(&lkp.cb_mutex);
+  pthread_mutex_unlock(&ctx.cb_mutex);
 
   hret = HG_SUCCESS;
   for (int i = 0; i < xsize; i++) {
@@ -267,8 +268,8 @@ hg_return_t nx_lookup_addrs(nexus_ctx_t nctx, hg_context_t* hgctx,
   }
 
 err:
-  pthread_cond_destroy(&lkp.cb_cv);
-  pthread_mutex_destroy(&lkp.cb_mutex);
+  pthread_cond_destroy(&ctx.cb_cv);
+  pthread_mutex_destroy(&ctx.cb_mutex);
   free(out);
   return hret;
 }
