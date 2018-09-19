@@ -182,12 +182,10 @@ hg_return_t nx_lookup_cb(const struct hg_cb_info* info) {
 
   pthread_mutex_lock(&out->ctx->cb_mutex);
 
-  if (out->hret != HG_SUCCESS)
-    (*(out->ctx->nx_map))[out->idx] = HG_ADDR_NULL;
-  else
+  if (out->hret == HG_SUCCESS)
     (*(out->ctx->nx_map))[out->idx] = info->info.lookup.addr;
-
   out->ctx->done += 1;
+
   pthread_cond_signal(&out->ctx->cb_cv);
   pthread_mutex_unlock(&out->ctx->cb_mutex);
 
@@ -203,10 +201,9 @@ hg_return_t nx_lookup_addrs(nexus_ctx_t nctx, hg_context_t* hgctx,
 
   struct nx_lookup_ctx ctx;
   out = (struct nx_lookup_out*)malloc(sizeof(*out) * xsize);
-  if (out == NULL) {
-    return HG_NOMEM_ERROR;
-  }
+  if (out == NULL) return HG_NOMEM_ERROR;
 
+  hret = HG_SUCCESS;
   pthread_mutex_init(&ctx.cb_mutex, NULL);
   pthread_cond_init(&ctx.cb_cv, NULL);
   ctx.nx_map = map;
@@ -219,12 +216,12 @@ hg_return_t nx_lookup_addrs(nexus_ctx_t nctx, hg_context_t* hgctx,
 
   pthread_mutex_lock(&ctx.cb_mutex);
 
-  while (i != xsize) {
+  while (hret == HG_SUCCESS && i < xsize) {
     int remain = xsize - i;
     int cando = remain < nctx->nx_limit ? remain : nctx->nx_limit;
 
     /* start as many as we can */
-    while (cando-- > 0) {
+    while (hret == HG_SUCCESS && cando-- > 0) {
       const int eff_i = (i + eff_offset) % xsize;
 
       xchg_dat_t* const xi =
@@ -240,12 +237,15 @@ hg_return_t nx_lookup_addrs(nexus_ctx_t nctx, hg_context_t* hgctx,
       } else {
         hret = HG_Addr_self(hgcl, &self_addr);
 
-        /* directly add address to map */
-        if (hret != HG_SUCCESS)
-          (*(ctx.nx_map))[xi->idx] = HG_ADDR_NULL;
-        else
+        if (hret == HG_SUCCESS) { /* directly add address to map */
           (*(ctx.nx_map))[xi->idx] = self_addr;
 
+          ctx.done += 1;
+        }
+      }
+
+      if (hret != HG_SUCCESS) {
+        out[eff_i].hret = hret;
         ctx.done += 1;
       }
 
@@ -260,7 +260,7 @@ hg_return_t nx_lookup_addrs(nexus_ctx_t nctx, hg_context_t* hgctx,
   pthread_mutex_unlock(&ctx.cb_mutex);
 
   hret = HG_SUCCESS;
-  for (int i = 0; i < xsize; i++) {
+  for (i = 0; i < xsize; i++) {
     if (out[i].hret != HG_SUCCESS) {
       hret = out[i].hret;
       goto err;
