@@ -784,7 +784,8 @@ nexus_ctx_t nx_bootstrap_internal(char* uri, char* subnet, char* proto) {
   nx_setup_local(nctx);
 
   if (!nctx->grank)
-    fprintf(stdout, "NX: LOCAL %s\n", nctx->hg_local ? "DONE" : "VIA REMOTE");
+    fprintf(stdout, "NX: LOCAL %s (NX-LIMIT=%d)\n",
+            nctx->hg_local ? "DONE" : "VIA REMOTE", nctx->nx_limit);
 
   if (!uri) {
     nx_prepare_addr(nctx, subnet, proto, addr);
