@@ -37,6 +37,7 @@
 
 #include "nexus_internal.h"
 
+#define DEFAULT_NX_LIMIT 4
 #define TMPADDRSZ 64
 
 namespace {
@@ -214,8 +215,8 @@ hg_return_t nx_lookup_addrs(nexus_ctx_t nctx, hg_context_t* hgctx,
 
   cur_i = 0;
 send_again:
-  eff_size = (((xsize - cur_i) < NEXUS_LOOKUP_LIMIT) ? (xsize - cur_i)
-                                                     : NEXUS_LOOKUP_LIMIT);
+  eff_size =
+      ((xsize - cur_i) < nctx->nx_limit) ? (xsize - cur_i) : nctx->nx_limit;
   /* Post a batch of lookups */
   for (int i = 0; i < eff_size; i++) {
     int eff_i = (i + cur_i + nctx->grank) % nctx->gsize;
@@ -750,10 +751,21 @@ void nx_discover_remote(nexus_ctx_t nctx, char* hgaddr_in) {
 }
 
 nexus_ctx_t nx_bootstrap_internal(char* uri, char* subnet, char* proto) {
-  nexus_ctx_t nctx = NULL;
+  nexus_ctx_t nctx;
   char addr[TMPADDRSZ]; /* server uri buffer */
+  char* env;
 
   nctx = new nexus_ctx;
+
+  env = getenv("NEXUS_LOOKUP_LIMIT");
+  if (env == NULL || env[0] == 0) {
+    nctx->nx_limit = DEFAULT_NX_LIMIT;
+  } else {
+    nctx->nx_limit = atoi(env);
+    if (nctx->nx_limit <= 0) {
+      nctx->nx_limit = 1;
+    }
+  }
 
   nctx->localcomm = MPI_COMM_NULL;
   nctx->repcomm = MPI_COMM_NULL;

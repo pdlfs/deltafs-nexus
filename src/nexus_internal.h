@@ -38,8 +38,6 @@
 
 #include "deltafs-nexus_api.h"
 
-#define NEXUS_LOOKUP_LIMIT 64
-
 typedef std::map<int, hg_addr_t> nexus_map_t;
 
 /* nexus_hg_state: state for an opened mercury instance */
@@ -77,6 +75,9 @@ struct nexus_ctx {
 
   nexus_hg_t* hg_remote;
   nexus_hg_t* hg_local;
+
+  /* max pending hg addr lookup requests */
+  int nx_limit;
 };
 
 /*
