@@ -197,65 +197,61 @@ hg_return_t nx_lookup_cb(const struct hg_cb_info* info) {
 hg_return_t nx_lookup_addrs(nexus_ctx_t nctx, hg_context_t* hgctx,
                             hg_class_t* hgcl, xchg_dat_t* xarr, int xsize,
                             int addrsz, nexus_map_t* map) {
-  hg_lookup_out_t* out = NULL;
-  hg_return_t hret;
+  hg_lookup_out_t* out;
   hg_addr_t self_addr;
-  int cur_i, eff_size;
+  hg_return_t hret;
+
+  out = (hg_lookup_out_t*)malloc(sizeof(*out) * xsize);
+  if (out == NULL) {
+    return HG_NOMEM_ERROR;
+  }
 
   lkp.count = 0;
   lkp.map = map;
 
-  out = (hg_lookup_out_t*)malloc(sizeof(*out) * xsize);
-  if (out == NULL) return HG_NOMEM_ERROR;
-
   pthread_mutex_init(&lkp.cb_mutex, NULL);
   pthread_cond_init(&lkp.cb_cv, NULL);
 
+  /* determine if we are local, use my rank as starting point */
+  int local = (hgctx == nctx->hg_local->hg_ctx);
+  int eff_offset = (local) ? nctx->lrank : nctx->grank;
+  int i = 0;
+
   pthread_mutex_lock(&lkp.cb_mutex);
 
-  cur_i = 0;
-send_again:
-  eff_size =
-      ((xsize - cur_i) < nctx->nx_limit) ? (xsize - cur_i) : nctx->nx_limit;
-  /* Post a batch of lookups */
-  for (int i = 0; i < eff_size; i++) {
-    int eff_i = (i + cur_i + nctx->grank) % nctx->gsize;
-    xchg_dat_t* xi =
-        (xchg_dat_t*)(((char*)xarr) + eff_i * (sizeof(*xi) + addrsz));
+  while (i != xsize) {
+    int remain = xsize - i;
+    int cando = remain < nctx->nx_limit ? remain : nctx->nx_limit;
 
-    /* Populate out struct */
-    out[eff_i].hret = HG_SUCCESS;
-    out[eff_i].idx = xi->idx;
-    if (xi->grank != nctx->grank) {
-      hret = HG_Addr_lookup(hgctx, &nx_lookup_cb, &out[eff_i], xi->addr,
-                            HG_OP_ID_IGNORE);
-    } else {
-      hret = HG_Addr_self(hgcl, &self_addr);
-      /* Add address to map */
-      if (hret != HG_SUCCESS)
-        (*(lkp.map))[xi->idx] = HG_ADDR_NULL;
-      else
-        (*(lkp.map))[xi->idx] = self_addr;
+    /* start as many as we can */
+    while (cando-- > 0) {
+      const int eff_i = (i + eff_offset) % xsize;
 
-      lkp.count += 1;
+      xchg_dat_t* const xi =
+          (xchg_dat_t*)(((char*)xarr) + eff_i * (sizeof(*xi) + addrsz));
+
+      if (xi->grank != nctx->grank) {
+        hret = HG_Addr_lookup(hgctx, &nx_lookup_cb, &out[eff_i], xi->addr,
+                              HG_OP_ID_IGNORE);
+      } else {
+        hret = HG_Addr_self(hgcl, &self_addr);
+
+        /* directly add address to map */
+        if (hret != HG_SUCCESS)
+          (*(lkp.map))[xi->idx] = HG_ADDR_NULL;
+        else
+          (*(lkp.map))[xi->idx] = self_addr;
+
+        lkp.count += 1;
+      }
+
+      i++;
     }
 
-    if (hret != HG_SUCCESS) {
-      pthread_mutex_unlock(&lkp.cb_mutex);
-      goto err;
+    while (lkp.count < i) { /* ok to break out if just one slot is free? */
+      pthread_cond_wait(&lkp.cb_cv, &lkp.cb_mutex);
     }
   }
-
-  cur_i += eff_size;
-
-/* Lookup posted, wait until finished */
-wait_again:
-  if (lkp.count < cur_i) {
-    pthread_cond_wait(&lkp.cb_cv, &lkp.cb_mutex);
-    if (lkp.count < cur_i) goto wait_again;
-  }
-
-  if (cur_i < xsize) goto send_again;
 
   pthread_mutex_unlock(&lkp.cb_mutex);
 
