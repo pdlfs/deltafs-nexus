@@ -230,6 +230,9 @@ hg_return_t nx_lookup_addrs(nexus_ctx_t nctx, hg_context_t* hgctx,
       xchg_dat_t* const xi =
           (xchg_dat_t*)(((char*)xarr) + eff_i * (sizeof(*xi) + addrsz));
 
+      out[eff_i].hret = HG_SUCCESS;
+      out[eff_i].idx = xi->idx;
+
       if (xi->grank != nctx->grank) {
         hret = HG_Addr_lookup(hgctx, &nx_lookup_cb, &out[eff_i], xi->addr,
                               HG_OP_ID_IGNORE);
