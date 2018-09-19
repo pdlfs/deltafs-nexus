@@ -218,7 +218,7 @@ send_again:
                                                      : NEXUS_LOOKUP_LIMIT);
   /* Post a batch of lookups */
   for (int i = 0; i < eff_size; i++) {
-    int eff_i = ((nctx->grank + i) % eff_size) + cur_i;
+    int eff_i = (i + cur_i + nctx->grank) % nctx->gsize;
     xchg_dat_t* xi =
         (xchg_dat_t*)(((char*)xarr) + eff_i * (sizeof(*xi) + addrsz));
 
@@ -253,9 +253,10 @@ wait_again:
     pthread_cond_wait(&lkp.cb_cv, &lkp.cb_mutex);
     if (lkp.count < cur_i) goto wait_again;
   }
-  pthread_mutex_unlock(&lkp.cb_mutex);
 
   if (cur_i < xsize) goto send_again;
+
+  pthread_mutex_unlock(&lkp.cb_mutex);
 
   hret = HG_SUCCESS;
   for (int i = 0; i < xsize; i++) {
