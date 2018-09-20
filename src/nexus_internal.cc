@@ -297,6 +297,29 @@ void nx_dump_addrs(nexus_ctx_t nctx, nexus_hg_t* hg, nexus_map_t* map) {
   }
 }
 
+void nx_init_localcomm(nexus_ctx_t nctx) {
+  if (MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0,
+                          MPI_INFO_NULL, &nctx->localcomm) != MPI_SUCCESS)
+    nx_fatal("MPI_Comm_split_type");
+  if (MPI_Comm_rank(nctx->localcomm, &nctx->lrank) != MPI_SUCCESS)
+    nx_fatal("MPI_Comm_rank");
+  if (MPI_Comm_size(nctx->localcomm, &nctx->lsize) != MPI_SUCCESS)
+    nx_fatal("MPI_Comm_size");
+}
+
+void nx_init_repcomm(nexus_ctx_t nctx) {
+  int color = (nctx->grank == nctx->lroot) ? 1 : MPI_UNDEFINED;
+  if (MPI_Comm_split(MPI_COMM_WORLD, color, nctx->grank, &nctx->repcomm) !=
+      MPI_SUCCESS)
+    nx_fatal("MPI_Comm_split");
+  if (nctx->repcomm != MPI_COMM_NULL) {
+    if (MPI_Comm_rank(nctx->repcomm, &nctx->nodeid) != MPI_SUCCESS)
+      nx_fatal("MPI_Comm_rank");
+    if (MPI_Comm_size(nctx->repcomm, &nctx->nnodes) != MPI_SUCCESS)
+      nx_fatal("MPI_Comm_size");
+  }
+}
+
 /*
  * nx_setup_local_via_remote: setup the local network substrate by reusing the
  * remote substrate. must be called after nx_setup_local and nx_discover_remote.
@@ -393,8 +416,6 @@ void nx_setup_local(nexus_ctx_t nctx) {
   hg_return_t hret;
 
   nx_init_localcomm(nctx);
-  MPI_Comm_rank(nctx->localcomm, &nctx->lrank);
-  MPI_Comm_size(nctx->localcomm, &nctx->lsize);
   memset(addr, 0, sizeof(addr));
   nctx->hg_local = NULL;
 
@@ -658,13 +679,6 @@ void nx_discover_remote(nexus_ctx_t nctx, char* hgaddr_in) {
   bgthread_dat_t bgarg;
 
   nx_init_repcomm(nctx);
-  if (nctx->repcomm != MPI_COMM_NULL) {
-    MPI_Comm_rank(nctx->repcomm, &nctx->nodeid);
-    MPI_Comm_size(nctx->repcomm, &nctx->nnodes);
-  } else {
-    assert(nctx->grank != nctx->lroot);
-  }
-
   MPI_Bcast(&nctx->nodeid, 1, MPI_INT, 0, nctx->localcomm);
   MPI_Bcast(&nctx->nnodes, 1, MPI_INT, 0, nctx->localcomm);
 

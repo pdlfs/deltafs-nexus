@@ -102,26 +102,3 @@ static bool nx_is_envset(const char* name) {
   return strcmp(env, "0") != 0;
 }
 
-static void nx_init_localcomm(nexus_ctx_t nctx) {
-#if MPI_VERSION >= 3
-  int ret = MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0,
-                                MPI_INFO_NULL, &nctx->localcomm);
-  if (ret != MPI_SUCCESS) {
-    nx_fatal("MPI_Comm_split_type");
-  }
-#else
-  msg_abort("MPI-3 required");
-#endif
-}
-
-static void nx_init_repcomm(nexus_ctx_t nctx) {
-#if MPI_VERSION >= 3
-  int color = (nctx->grank == nctx->lroot) ? 1 : MPI_UNDEFINED;
-  int ret = MPI_Comm_split(MPI_COMM_WORLD, color, nctx->grank, &nctx->repcomm);
-  if (ret != MPI_SUCCESS) {
-    nx_fatal("MPI_Comm_split_type");
-  }
-#else
-  msg_abort("MPI-3 required");
-#endif
-}
