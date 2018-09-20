@@ -79,26 +79,3 @@ struct nexus_ctx {
   /* max pending hg addr lookup requests */
   int nx_limit;
 };
-
-/*
- * nx_fatal: abort with a message
- */
-static inline void nx_fatal(const char* msg) {
-  if (errno != 0) {
-    fprintf(stderr, "NX FATAL: %s (%s)\n", msg, strerror(errno));
-  } else {
-    fprintf(stderr, "NX FATAL: %s\n", msg);
-  }
-
-  abort();
-}
-
-/*
- * nx_is_envset: check if an env is set
- */
-static bool nx_is_envset(const char* name) {
-  char* env = getenv(name);
-  if (!env || !env[0]) return false;
-  return strcmp(env, "0") != 0;
-}
-

@@ -47,18 +47,35 @@ typedef struct {
   char addr[];
 } xchg_dat_t;
 
-typedef struct {
+/* nx_fatal: abort with a message */
+void nx_fatal(const char* msg) {
+  if (errno != 0)
+    fprintf(stderr, "NX FATAL: %s (%s)\n", msg, strerror(errno));
+  else
+    fprintf(stderr, "NX FATAL: %s\n", msg);
+
+  abort();
+}
+
+/* nx_is_envset: check if a given env is set */
+bool nx_is_envset(const char* name) {
+  char* env = getenv(name);
+  if (env == NULL || env[0] == 0) return false;
+  return strcmp(env, "0") != 0;
+}
+
+struct bgthread_dat {
   hg_context_t* hgctx;
   nexus_ctx_t nctx;
   int bgdone;
-} bgthread_dat_t;
+};
 
 /*
  * network support pthread. Need to call progress to push the network and then
  * trigger to run the callback.
  */
 void* nx_bgthread(void* arg) {
-  bgthread_dat_t* bgdat = (bgthread_dat_t*)arg;
+  struct bgthread_dat* const bgdat = (struct bgthread_dat*)arg;
   hg_return_t hret;
   int r = bgdat->nctx->grank;
 #ifdef NEXUS_DEBUG
@@ -331,7 +348,7 @@ void nx_setup_local_via_remote(nexus_ctx_t nctx) {
   char addr[TMPADDRSZ];
   xchg_dat_t *xitm, *xarr;
   pthread_t bgthread; /* network bg thread */
-  bgthread_dat_t bgarg;
+  struct bgthread_dat bgarg;
   hg_return_t hret;
 
   assert(nctx->hg_remote != NULL);
@@ -412,7 +429,7 @@ void nx_setup_local(nexus_ctx_t nctx) {
   char addr[TMPADDRSZ];
   xchg_dat_t *xitm, *xarr;
   pthread_t bgthread; /* network bg thread */
-  bgthread_dat_t bgarg;
+  struct bgthread_dat bgarg;
   hg_return_t hret;
 
   nx_init_localcomm(nctx);
@@ -674,9 +691,9 @@ void nx_discover_remote(nexus_ctx_t nctx, char* hgaddr_in) {
   hg_addr_t addr_self;
   hg_size_t addr_sz;
   char addr[TMPADDRSZ];
-  hg_return_t hret;
   pthread_t bgthread; /* network bg thread */
-  bgthread_dat_t bgarg;
+  struct bgthread_dat bgarg;
+  hg_return_t hret;
 
   nx_init_repcomm(nctx);
   MPI_Bcast(&nctx->nodeid, 1, MPI_INT, 0, nctx->localcomm);
