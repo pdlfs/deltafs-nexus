@@ -520,10 +520,10 @@ void nx_setup_local(nexus_ctx_t nctx) {
 }
 
 void nx_find_remote_addrs(nexus_ctx_t nctx, char* myaddr) {
-  int my_sz, i, j, M, npeers, maxpeers;
+  int my_sz, i, j, M, c, P;
   int *myinfo, *nodeinfo;
   char* rank2addr;
-  xchg_dat_t* paddrs;
+  xchg_dat_t *xitm, *xarr;
   hg_return_t hret;
 
   /* if we're alone stop here */
@@ -544,7 +544,6 @@ void nx_find_remote_addrs(nexus_ctx_t nctx, char* myaddr) {
 
   /* first, we map ranks to their string addresses */
   MPI_Allreduce(&my_sz, &nctx->gaddrsz, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
-
   rank2addr = (char*)malloc(nctx->gsize * nctx->gaddrsz);
   if (!rank2addr) nx_fatal("malloc failed");
 
@@ -597,11 +596,10 @@ void nx_find_remote_addrs(nexus_ctx_t nctx, char* myaddr) {
    */
 
   /* Step 1: find total number of peers */
-  maxpeers =
-      (nctx->nnodes / nctx->lsize) + ((nctx->nnodes % nctx->lsize) ? 1 : 0);
+  P = (nctx->nnodes / nctx->lsize) + ((nctx->nnodes % nctx->lsize) ? 1 : 0);
 
-  paddrs = (xchg_dat_t*)malloc(maxpeers * (sizeof(*paddrs) + nctx->gaddrsz));
-  if (!paddrs) nx_fatal("malloc failed");
+  xarr = (xchg_dat_t*)malloc(P * (sizeof(*xarr) + nctx->gaddrsz));
+  if (!xarr) nx_fatal("malloc failed");
 
   /* Keep info on global ranks of remote reps in node2rep */
   nctx->node2rep = (int*)malloc(sizeof(int) * nctx->nnodes);
@@ -620,14 +618,13 @@ void nx_find_remote_addrs(nexus_ctx_t nctx, char* myaddr) {
    * the remote node's rank size.
    */
   i = nctx->lrank;
-  npeers = 0;
+  c = 0;
   while (i < nctx->nnodes) {
-    int idx = i * (M + 1);
     int remote_grank, remote_lsize;
     char* remote_addr;
-    xchg_dat_t* ppeer;
+    int idx = i * (M + 1);
 
-    /* Skip ourselves */
+    /* skip ourselves */
     if (i == nctx->nodeid) {
       i += nctx->lsize;
       continue;
@@ -637,14 +634,13 @@ void nx_find_remote_addrs(nexus_ctx_t nctx, char* myaddr) {
     remote_grank = nodeinfo[idx + 1 + (nctx->nodeid % remote_lsize)];
     remote_addr = NADDR(rank2addr, remote_grank, nctx->gaddrsz);
 
-    ppeer = (xchg_dat_t*)(((char*)paddrs) +
-                          npeers * (sizeof(*ppeer) + nctx->gaddrsz));
-    strncpy(ppeer->addr, remote_addr, nctx->gaddrsz);
-    ppeer->idx = i; /* we index by node ID */
-    ppeer->grank = remote_grank;
+    xitm = (xchg_dat_t*)(((char*)xarr) + c * (sizeof(*xitm) + nctx->gaddrsz));
+    strncpy(xitm->addr, remote_addr, nctx->gaddrsz);
+    xitm->idx = i; /* use node id as address indexes */
+    xitm->grank = remote_grank;
 
     i += nctx->lsize;
-    npeers++;
+    c++;
   }
 
 #undef NADDR
@@ -652,29 +648,25 @@ void nx_find_remote_addrs(nexus_ctx_t nctx, char* myaddr) {
   free(rank2addr);
   free(nodeinfo);
 
-  /* No peers? Stop here. */
-  if (!npeers) {
-    free(paddrs);
-    return;
-  }
-
+  /* lookup addresses */
+  if (c != 0) {
 #ifdef NEXUS_DEBUG
-  for (i = 0; i < npeers; i++) {
-    xchg_dat_t* p =
-        (xchg_dat_t*)(((char*)paddrs) + i * (sizeof(*p) + nctx->gaddrsz));
-    fprintf(stderr, "NX-%d: peer[%d]=%d (addr=%s)\n", nctx->grank, p->idx,
-            p->grank, p->addr);
-  }
+    for (i = 0; i < npeers; i++) {
+      xchg_dat_t* p =
+          (xchg_dat_t*)(((char*)paddrs) + i * (sizeof(*p) + nctx->gaddrsz));
+      fprintf(stderr, "NX-%d: peer[%d]=%d (addr=%s)\n", nctx->grank, p->idx,
+              p->grank, p->addr);
+    }
 #endif
 
-  /* Step 2: lookup peer addresses */
-  hret = nx_lookup_addrs(nctx, nctx->hg_remote, paddrs, npeers, nctx->gaddrsz,
-                         &nctx->rmap);
-  if (hret != HG_SUCCESS) {
-    nx_fatal("net:HG_Addr_lookup");
+    hret = nx_lookup_addrs(nctx, nctx->hg_remote, xarr, c, nctx->gaddrsz,
+                           &nctx->rmap);
+    if (hret != HG_SUCCESS) {
+      nx_fatal("net:HG_Addr_lookup");
+    }
   }
 
-  free(paddrs);
+  free(xarr);
 }
 
 /*
