@@ -529,10 +529,9 @@ void nx_find_remote_addrs(nexus_ctx_t nctx, char* myaddr) {
   /* if we're alone stop here */
   if (nctx->nnodes == 1) return;
   my_sz = strlen(myaddr) + 1;
-#define NADDR(x, y, s) (&x[y * s])
   /*
    * to setup the remote network, we need to know a) which remote peers we
-   * should connect to, and b) what are their addresses.  but to accomplish a),
+   * should connect to, and b) what are their addresses. but to accomplish a,
    * we need to first prepare two auxiliary arrays: rank2addr which maps each
    * rank to its remote address, and nodeinfo which is going to contain the
    * manifest information for each remote node.
@@ -593,44 +592,50 @@ void nx_find_remote_addrs(nexus_ctx_t nctx, char* myaddr) {
 #ifdef NEXUS_DEBUG
   for (j = 0; j < nctx->nnodes; j++)
     for (i = 1; i < M + 1; i++)
-      fprintf(stderr, "NX-%d: nodelists[%d][%d]=%d\n", nctx->grank, j, i - 1,
-              nodelists[j * (M + 1) + i]);
+      fprintf(stderr, "NX-%d: nodeinfo[%d][%d]=%d\n", nctx->grank, j, i - 1,
+              nodeinfo[j * (M + 1) + i]);
 #endif
 
-  /*
-   * Time to construct an array of peer addresses. We'll do this in two steps:
-   * - find total number of peers, which is ceil(# nodes / # local ranks)
-   * - construct array of peer addresses and look them all up
+  /* before we go figure out who's our peers, let's first use the nodeinfo array
+   * to construct a corresponding node2rep array. this array maps each node to
+   * its node representative.
    */
+  nctx->node2rep = (int*)malloc(sizeof(int) * nctx->nnodes);
+  if (!nctx->node2rep) nx_fatal("malloc failed");
 
-  /* Step 1: find total number of peers */
+  /*
+   * the representative for a node is one whose local rank is equal to our
+   * node's id modulo the remote node's lsize.
+   */
+  for (i = 0; i < nctx->nnodes; i++) {
+#define IDX(i) (i * (M + 1))
+    nctx->node2rep[i] =
+        nodeinfo[IDX(i) + 1 + (nctx->nodeid % nodeinfo[IDX(i)])];
+
+#undef IDX
+  }
+
+  free(nodeinfo);
+
+  /*
+   * with rank2addr and node2rep both done, the next step is to determine
+   * who's indeed our peers. but let's first determine the max possible number
+   * of peers that we can be responsible for.
+   */
   P = (nctx->nnodes / nctx->lsize) + ((nctx->nnodes % nctx->lsize) ? 1 : 0);
 
   xarr = (xchg_dat_t*)malloc(P * (sizeof(*xarr) + nctx->gaddrsz));
   if (!xarr) nx_fatal("malloc failed");
 
-  /* Keep info on global ranks of remote reps in node2rep */
-  nctx->node2rep = (int*)malloc(sizeof(int) * nctx->nnodes);
-  if (!nctx->node2rep) nx_fatal("malloc failed");
-
-  for (i = 0; i < nctx->nnodes; i++) {
-    int idx = i * (M + 1);
-    int remote_lsize = nodeinfo[idx];
-    nctx->node2rep[i] = nodeinfo[idx + 1 + (nctx->nodeid % remote_lsize)];
-  }
-
   /*
-   * We will communicate with a node, if its node ID modulo our node's rank
-   * size is equal to our local-rank. Of each node we communicate with, we
-   * will msg the remote local-rank that is equal to our node's ID modulo
-   * the remote node's rank size.
+   * a node (node, not a rank) is a peer iff its node id modulo our node's
+   * lsize is equal to our lrank.
    */
   i = nctx->lrank;
   c = 0;
   while (i < nctx->nnodes) {
-    int remote_grank, remote_lsize;
+#define NADDR(x, y, s) (&x[y * s])
     char* remote_addr;
-    int idx = i * (M + 1);
 
     /* skip ourselves */
     if (i == nctx->nodeid) {
@@ -638,23 +643,20 @@ void nx_find_remote_addrs(nexus_ctx_t nctx, char* myaddr) {
       continue;
     }
 
-    remote_lsize = nodeinfo[idx];
-    remote_grank = nodeinfo[idx + 1 + (nctx->nodeid % remote_lsize)];
-    remote_addr = NADDR(rank2addr, remote_grank, nctx->gaddrsz);
+    remote_addr = NADDR(rank2addr, nctx->node2rep[i], nctx->gaddrsz);
 
     xitm = (xchg_dat_t*)(((char*)xarr) + c * (sizeof(*xitm) + nctx->gaddrsz));
     strncpy(xitm->addr, remote_addr, nctx->gaddrsz);
     xitm->idx = i; /* use node id as address indexes */
-    xitm->grank = remote_grank;
+    xitm->grank = nctx->node2rep[i];
 
     i += nctx->lsize;
     c++;
-  }
 
 #undef NADDR
-  /* free arrays we no longer need */
+  }
+
   free(rank2addr);
-  free(nodeinfo);
 
   /* lookup addresses */
   if (c != 0) {
