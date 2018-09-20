@@ -302,7 +302,7 @@ void nx_dump_addrs(nexus_ctx_t nctx, nexus_hg_t* hg, nexus_map_t* map) {
  * remote substrate. must be called after nx_setup_local and nx_discover_remote.
  */
 void nx_setup_local_via_remote(nexus_ctx_t nctx) {
-  int ret, buf_sz;
+  int ret, my_sz, xchg_sz;
   hg_addr_t addr_self;
   hg_size_t addr_sz;
   char addr[TMPADDRSZ];
@@ -327,37 +327,24 @@ void nx_setup_local_via_remote(nexus_ctx_t nctx) {
     nx_fatal("lo:HG_Addr_to_string");
   }
   HG_Addr_free(nctx->hg_local->hg_cl, addr_self);
+  my_sz = strlen(addr) + 1;
 
   /* determine the max address size for local comm */
-  buf_sz = strlen(addr) + 1;
-  MPI_Allreduce(&buf_sz, &nctx->laddrsz, 1, MPI_INT, MPI_MAX, nctx->localcomm);
-  buf_sz = sizeof(xchg_dat_t) + nctx->laddrsz;
+  MPI_Allreduce(&my_sz, &nctx->laddrsz, 1, MPI_INT, MPI_MAX, nctx->localcomm);
+  xchg_sz = sizeof(xchg_dat_t) + nctx->laddrsz;
 
   /* exchange addresses, global, and local ranks in local comm */
-  xitm = (xchg_dat_t*)malloc(buf_sz);
+  xitm = (xchg_dat_t*)malloc(xchg_sz);
   if (!xitm) nx_fatal("malloc failed");
   xitm->grank = nctx->grank;
-  xitm->idx = nctx->lrank;
+  xitm->idx = xitm->grank; /* use granks as address indexes */
   strcpy(xitm->addr, addr);
 
-  xarr = (xchg_dat_t*)malloc(nctx->lsize * buf_sz);
+  xarr = (xchg_dat_t*)malloc(nctx->lsize * xchg_sz);
   if (!xarr) nx_fatal("malloc failed");
 
-  assert(nctx->local2global != NULL);
-
-  MPI_Allgather(xitm, buf_sz, MPI_BYTE, xarr, buf_sz, MPI_BYTE,
+  MPI_Allgather(xitm, xchg_sz, MPI_BYTE, xarr, xchg_sz, MPI_BYTE,
                 nctx->localcomm);
-
-  /* verify the map of local to global ranks, also verify the local root */
-  for (int i = 0; i < nctx->lsize; i++) {
-    xchg_dat_t* xi = (xchg_dat_t*)(((char*)xarr) + i * buf_sz);
-
-    assert(nctx->local2global[xi->idx] == xi->grank);
-    if (xi->idx == 0) assert(nctx->lroot == xi->grank);
-
-    /* for lookups our index is the grank */
-    xi->idx = xi->grank;
-  }
 
   /* pre-lookup and cache all mercury addresses */
   if (nctx->hg_local != NULL) {
