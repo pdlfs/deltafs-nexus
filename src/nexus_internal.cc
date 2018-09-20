@@ -687,13 +687,13 @@ nonroot:
  * substrate for multi-hop routing.
  */
 void nx_discover_remote(nexus_ctx_t nctx, char* hgaddr_in) {
-  int ret;
   hg_addr_t addr_self;
   hg_size_t addr_sz;
   char addr[TMPADDRSZ];
   pthread_t bgthread; /* network bg thread */
   struct bgthread_dat bgarg;
   hg_return_t hret;
+  int ret;
 
   nx_init_repcomm(nctx);
   MPI_Bcast(&nctx->nodeid, 1, MPI_INT, 0, nctx->localcomm);
@@ -734,8 +734,8 @@ void nx_discover_remote(nexus_ctx_t nctx, char* hgaddr_in) {
   }
   HG_Addr_free(nctx->hg_remote->hg_cl, addr_self);
 
-  /* pre-lookup and cache mercury addresses */
-  if (nctx->hg_remote != NULL) {
+  /* lookup and store mercury addresses */
+  if (nctx->nnodes != 1) { /* only do it when we aren't alone */
     bgarg.hgctx = nctx->hg_remote->hg_ctx;
     bgarg.bgdone = 0;
     bgarg.nctx = nctx;
