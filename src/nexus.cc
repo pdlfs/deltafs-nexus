@@ -48,7 +48,6 @@ nexus_ret_t nexus_next_hop(nexus_ctx_t nctx, int dest, int* rank,
                            hg_addr_t* addr) {
   int srcrep, destrep;
   int destn;
-  nexus_map_t::iterator it;
   assert(nctx != NULL);
 
   /* stop here if we are the final hop */
@@ -85,8 +84,6 @@ nexus_ret_t nexus_next_hop(nexus_ctx_t nctx, int dest, int* rank,
     /* we are the src rep */
     return NX_DESTREP;
   }
-
-  return NX_INVAL;
 }
 
 nexus_ret_t nexus_set_grank(nexus_ctx_t nctx, int rank) {
