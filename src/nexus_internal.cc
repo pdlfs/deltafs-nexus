@@ -528,7 +528,7 @@ void nx_find_remote_addrs(nexus_ctx_t nctx, char* myaddr) {
 
   /* if we're alone stop here */
   if (nctx->nnodes == 1) return;
-  my_sz = strlen(myaddr) + 1;
+
   /*
    * to setup the remote network, we need to know a) which remote peers we
    * should connect to, and b) what are their addresses. but to accomplish a,
@@ -538,6 +538,7 @@ void nx_find_remote_addrs(nexus_ctx_t nctx, char* myaddr) {
    *
    * our first step is to prepare the rank2addr array.
    */
+  my_sz = strlen(myaddr) + 1;
 
   /* determine the max address size for the global comm */
   MPI_Allreduce(&my_sz, &nctx->gaddrsz, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
@@ -635,7 +636,7 @@ void nx_find_remote_addrs(nexus_ctx_t nctx, char* myaddr) {
   c = 0;
   while (i < nctx->nnodes) {
 #define NADDR(x, y, s) (&x[y * s])
-    char* remote_addr;
+    char* raddr;
 
     /* skip ourselves */
     if (i == nctx->nodeid) {
@@ -643,12 +644,12 @@ void nx_find_remote_addrs(nexus_ctx_t nctx, char* myaddr) {
       continue;
     }
 
-    remote_addr = NADDR(rank2addr, nctx->node2rep[i], nctx->gaddrsz);
+    raddr = NADDR(rank2addr, nctx->node2rep[i], nctx->gaddrsz);
 
     xitm = (xchg_dat_t*)(((char*)xarr) + c * (sizeof(*xitm) + nctx->gaddrsz));
-    strncpy(xitm->addr, remote_addr, nctx->gaddrsz);
     xitm->idx = i; /* use node id as address indexes */
     xitm->grank = nctx->node2rep[i];
+    strcpy(xitm->addr, raddr);
 
     i += nctx->lsize;
     c++;
