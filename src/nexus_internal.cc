@@ -651,11 +651,11 @@ void nx_find_remote_addrs(nexus_ctx_t nctx, char* myaddr) {
   /* lookup addresses */
   if (c != 0) {
 #ifdef NEXUS_DEBUG
-    for (i = 0; i < npeers; i++) {
-      xchg_dat_t* p =
-          (xchg_dat_t*)(((char*)paddrs) + i * (sizeof(*p) + nctx->gaddrsz));
-      fprintf(stderr, "NX-%d: peer[%d]=%d (addr=%s)\n", nctx->grank, p->idx,
-              p->grank, p->addr);
+    for (i = 0; i < c; i++) {
+      xchg_dat_t* xi =
+          (xchg_dat_t*)(((char*)xarr) + i * (sizeof(*xi) + nctx->gaddrsz));
+      fprintf(stderr, "NX-%d: remote-peer[%d]=%d (addr=%s)\n", nctx->grank,
+              xi->idx, xi->grank, xi->addr);
     }
 #endif
 
