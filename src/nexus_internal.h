@@ -63,12 +63,12 @@ struct nexus_ctx {
   int lroot;   /* global rank of local root */
   int laddrsz; /* max string size needed for local address */
 
-  int* local2global; /* local rank -> its global rank */
-  int* rank2node;    /* rank -> its node id */
+  int* local2global; /* local rank -> the local peer's global rank */
+  int* rank2node;    /* global rank -> its node id */
   int* node2rep;     /* node -> its rep's global rank */
 
-  nexus_map_t lmap; /* global rank -> local peer's local address */
-  nexus_map_t rmap; /* remote node -> rep's remote address */
+  nexus_map_t lmap; /* local peer's global rank -> that peer's local address */
+  nexus_map_t rmap; /* remote node -> its rep's remote address */
 
   MPI_Comm localcomm;
   MPI_Comm repcomm;
