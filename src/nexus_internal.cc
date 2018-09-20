@@ -530,20 +530,20 @@ void nx_find_remote_addrs(nexus_ctx_t nctx, char* myaddr) {
   if (nctx->nnodes == 1) return;
   my_sz = strlen(myaddr) + 1;
 #define NADDR(x, y, s) (&x[y * s])
-
   /*
-   * To find our peer on each node, we need to construct a list of ranks per
-   * node. This is tricky with collectives if we want to support heterogeneous
-   * nodes. We do this in five steps:
-   * - we all-gather a rank => address array
-   * - find max number of ranks per node, M
-   * - local roots construct (M+1)-sized array of (# ranks, r0, r1, ...)
-   * - local roots all-gather (M+1)-sized arrays (on repcomm)
-   * - local roots broadcast finished array (on localcomm)
+   * to setup the remote network, we need to know a) which remote peers we
+   * should connect to, and b) what are their addresses.  but to accomplish a),
+   * we need to first prepare two auxiliary arrays: rank2addr which maps each
+   * rank to its remote address, and nodeinfo which is going to contain the
+   * manifest information for each remote node.
+   *
+   * our first step is to prepare the rank2addr array.
    */
 
-  /* first, we map ranks to their string addresses */
+  /* determine the max address size for the global comm */
   MPI_Allreduce(&my_sz, &nctx->gaddrsz, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
+
+  /* map each rank to its address */
   rank2addr = (char*)malloc(nctx->gsize * nctx->gaddrsz);
   if (!rank2addr) nx_fatal("malloc failed");
 
@@ -554,6 +554,14 @@ void nx_find_remote_addrs(nexus_ctx_t nctx, char* myaddr) {
     fprintf(stderr, "NX-%d: rank2addr[%d]=%s\n", nctx->grank, i,
             NADDR(rank2addr, i, nctx->gaddrsz));
 #endif
+
+  /*
+   * we now prepare the nodeinfo array and this is done in 4 steps: 1) we find
+   * the max number of ranks per node, M, 2) have each node rep construct a
+   * (M+1)-sized array containing (# ranks, r0, r1, ...), 3) have node reps
+   * all-gather their (M+1)-sized arrays (on repcomm), and 4) have each node rep
+   * broadcasts the finished array (on localcomm)
+   */
 
   /* find the max number of ranks per node (i.e., max PPN) */
   MPI_Allreduce(&nctx->lsize, &M, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
@@ -644,7 +652,7 @@ void nx_find_remote_addrs(nexus_ctx_t nctx, char* myaddr) {
   }
 
 #undef NADDR
-  /* Get rid of arrays we don't need anymore */
+  /* free arrays we no longer need */
   free(rank2addr);
   free(nodeinfo);
 
