@@ -281,19 +281,17 @@ hg_return_t nx_lookup_addrs(nexus_ctx_t nctx, nexus_hg_t* hg, xchg_dat_t* xarr,
 /*
  * nx_dump_addrs: dump a given map to stderr.
  */
-void nx_dump_addrs(nexus_ctx_t nctx, hg_class_t* hgcl, const char* map_name,
-                   nexus_map_t* map) {
+void nx_dump_addrs(nexus_ctx_t nctx, nexus_hg_t* hg, nexus_map_t* map) {
   char addr[TMPADDRSZ];
-  hg_size_t addr_sz = 0;
   hg_return_t hret;
 
+  const char* map_name = (map == &nctx->lmap) ? "lmap" : "rmap";
   nexus_map_t::iterator it = map->begin();
+
   for (; it != map->end(); ++it) {
-    addr_sz = sizeof(addr);
-    hret = HG_Addr_to_string(hgcl, addr, &addr_sz, it->second);
-    if (hret != HG_SUCCESS) {
-      strcpy(addr, "n/a");
-    }
+    hg_size_t addr_sz = sizeof(addr);
+    hret = HG_Addr_to_string(hg->hg_cl, addr, &addr_sz, it->second);
+    if (hret != HG_SUCCESS) strcpy(addr, "n/a");
     fprintf(stderr, "NX-%d: %s[%d]=%s\n", nctx->grank, map_name, it->first,
             addr);
   }
@@ -379,7 +377,7 @@ void nx_setup_local_via_remote(nexus_ctx_t nctx) {
     }
 
 #ifdef NEXUS_DEBUG
-    nx_dump_addrs(nctx, nctx->hg_local->hg_cl, "lmap", &nctx->lmap);
+    nx_dump_addrs(nctx, nctx->hg_local, &nctx->lmap);
 #endif
 
     MPI_Barrier(nctx->localcomm);
@@ -496,7 +494,7 @@ void nx_setup_local(nexus_ctx_t nctx) {
     }
 
 #ifdef NEXUS_DEBUG
-    nx_dump_addrs(nctx, nctx->hg_local->hg_cl, "lmap", &nctx->lmap);
+    nx_dump_addrs(nctx, nctx->hg_local, &nctx->lmap);
 #endif
 
     MPI_Barrier(nctx->localcomm);
@@ -744,7 +742,7 @@ void nx_discover_remote(nexus_ctx_t nctx, char* hgaddr_in) {
 
     nx_find_remote_addrs(nctx, addr);
 #ifdef NEXUS_DEBUG
-    nx_dump_addrs(nctx, nctx->hg_remote->hg_cl, "rmap", &nctx->rmap);
+    nx_dump_addrs(nctx, nctx->hg_remote, &nctx->rmap);
 #endif
 
     MPI_Barrier(MPI_COMM_WORLD);
