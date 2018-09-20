@@ -32,13 +32,17 @@
 
 #include <assert.h>
 
-static hg_addr_t nx_addr_get(nexus_map_t* map, int key) {
-  nexus_map_t::iterator it;
-  if ((it = map->find(key)) != map->end()) {
-    return it->second;
-  }
-  return HG_ADDR_NULL;
+/*
+ * utility function
+ */
+namespace {
+/* nx_addr_get: retrieve address from a given nexus map. return HG_ADDR_NULL if
+ * no such address if found */
+hg_addr_t nx_addr_get(nexus_map_t* map, int key) {
+  nexus_map_t::iterator it = map->find(key);
+  return (it == map->end()) ? HG_ADDR_NULL : it->second;
 }
+}  // namespace
 
 nexus_ret_t nexus_next_hop(nexus_ctx_t nctx, int dest, int* rank,
                            hg_addr_t* addr) {
