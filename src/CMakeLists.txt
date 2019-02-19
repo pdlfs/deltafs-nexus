@@ -85,7 +85,7 @@ get_property (link_flags TARGET deltafs-nexus PROPERTY LINK_FLAGS)
 #
 write_basic_package_version_file(
     "deltafs-nexus-config-version.cmake"
-    VERSION $DELTAFS_NEXUS_VERSIONBBOS_VERSION}
+    VERSION ${DELTAFS_NEXUS_VERSION}
     COMPATIBILITY AnyNewerVersion)
 
 # generate our config file for find_package()
