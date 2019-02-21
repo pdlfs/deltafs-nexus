@@ -1,4 +1,4 @@
-**Library managing process communication information for DeltaFS.**
+**library managing process communication information for deltafs.**
 
 [![GitHub release](https://img.shields.io/github/release/pdlfs/deltafs-nexus.svg)](https://github.com/pdlfs/deltafs-nexus/releases)
 [![License](https://img.shields.io/badge/license-New%20BSD-blue.svg)](LICENSE.txt)
@@ -43,8 +43,11 @@ brew install gcc
 brew install pkg-config
 brew install autoconf automake libtool
 brew install cmake
-env CC=/usr/local/bin/gcc-<n> CXX=/usr/local/bin/g++-<n> \
-  brew install --build-from-source mpich
+env \
+CC=/usr/local/bin/gcc-<n> \
+CXX=/usr/local/bin/g++-<n> \
+brew install --build-from-source \
+mpich
 ```
 
 Next, we need to install `mercury`. This can be done as follows:
@@ -54,10 +57,11 @@ git clone git@github.com:mercury-hpc/mercury.git
 cd mercury
 mkdir build
 cd build
-cmake -DBUILD_SHARED_LIBS=ON \
-  -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-  -DCMAKE_INSTALL_PREFIX=</tmp/mercury-prefix> \
-  -DNA_USE_SM=ON \
+cmake \
+-DBUILD_SHARED_LIBS=ON \
+-DCMAKE_BUILD_TYPE=RelWithDebInfo \
+-DCMAKE_INSTALL_PREFIX=</tmp/mercury-prefix> \
+-DNA_USE_SM=ON \
 ..
 ```
 
@@ -70,9 +74,10 @@ git clone git@github.com:pdlfs/deltafs-nexus.git
 cd deltafs-nexus
 mkdir build
 cd build
-cmake -DBUILD_SHARED_LIBS=ON \
-  -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-  -DCMAKE_INSTALL_PREFIX=</tmp/deltafs-nexus-prefix> \
-  -DCMAKE_PREFIX_PATH=</tmp/mercury-prefix> \
+cmake \
+-DBUILD_SHARED_LIBS=ON \
+-DCMAKE_BUILD_TYPE=RelWithDebInfo \
+-DCMAKE_INSTALL_PREFIX=</tmp/deltafs-nexus-prefix> \
+-DCMAKE_PREFIX_PATH=</tmp/mercury-prefix> \
 ..
 ```
