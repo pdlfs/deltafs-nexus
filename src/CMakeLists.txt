@@ -14,10 +14,6 @@ include (CMakePackageConfigHelpers)
 set (CMAKE_THREAD_PREFER_PTHREAD TRUE)
 set (THREADS_PREFER_PTHREAD_FLAG TRUE)
 
-# XXX: cmake 3.1 and newer define a Threads::Threads imported target
-# that we should switch too when we are ready to require 3.1 or better.
-# (3.1 was released late 2014)
-
 # where to install files for "find_package"
 set (deltafs-nexus-pkg-loc "share/cmake/deltafs-nexus")
 
@@ -45,21 +41,25 @@ target_include_directories (deltafs-nexus BEFORE PUBLIC
       $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>)
 
 target_link_libraries (deltafs-nexus mercury)
+# XXX: cmake 3.1 and newer define a Threads::Threads imported target
+# that we should switch too when we are ready to require 3.1 or better.
+# (3.1 was released late 2014)
+if (THREADS_HAVE_PTHREAD_ARG)
+    target_compile_options (deltafs-nexus PUBLIC "-pthread")
+endif ()
 if (CMAKE_THREAD_LIBS_INIT)
-  target_link_libraries (deltafs-nexus "${CMAKE_THREAD_LIBS_INIT}")
+    target_link_libraries (deltafs-nexus "${CMAKE_THREAD_LIBS_INIT}")
 endif ()
 
 if (NEXUS_DEBUG)
-target_compile_definitions(deltafs-nexus PRIVATE NEXUS_DEBUG)
+target_compile_definitions (deltafs-nexus PRIVATE NEXUS_DEBUG)
 endif ()
-set_target_properties(deltafs-nexus
-                      PROPERTIES VERSION ${DELTAFS_NEXUS_VERSION}
-                      SOVERSION ${DELTAFS_NEXUS_VERSION_MAJOR})
+set_target_properties (deltafs-nexus
+        PROPERTIES VERSION ${DELTAFS_NEXUS_VERSION}
+        SOVERSION ${DELTAFS_NEXUS_VERSION_MAJOR})
 
 # special handling for MPI, where the config comes in via MPI_<lang>_ vars.
-# Note that the mpich on ub14 gives a leading space that we need to trim off.
-string (REPLACE " " ";" mpicxx_flags "${MPI_CXX_COMPILE_FLAGS}")
-foreach (lcv ${mpicxx_flags})
+foreach (lcv ${MPI_CXX_COMPILE_FLAGS_LIST})
     if (NOT ${lcv} STREQUAL "")
         target_compile_options (deltafs-nexus PUBLIC $<BUILD_INTERFACE:${lcv}>)
     endif ()
@@ -72,7 +72,7 @@ foreach (lcv ${MPI_CXX_INCLUDE_PATH})
     target_include_directories (deltafs-nexus PUBLIC $<BUILD_INTERFACE:${lcv}>)
 endforeach ()
 foreach (lcv ${MPI_CXX_LIBRARIES})
-    target_link_libraries(deltafs-nexus $<BUILD_INTERFACE:${lcv}>)
+    target_link_libraries (deltafs-nexus $<BUILD_INTERFACE:${lcv}>)
 endforeach ()
 # XXX: this doesn't propagate to lib users, is that a problem?
 # XXX: prob ok.
@@ -83,10 +83,9 @@ get_property (link_flags TARGET deltafs-nexus PROPERTY LINK_FLAGS)
 #
 # installation stuff (packaging and install commands)
 #
-write_basic_package_version_file(
-    "deltafs-nexus-config-version.cmake"
-    VERSION ${DELTAFS_NEXUS_VERSION}
-    COMPATIBILITY AnyNewerVersion)
+write_basic_package_version_file ("deltafs-nexus-config-version.cmake"
+        VERSION ${DELTAFS_NEXUS_VERSION}
+        COMPATIBILITY AnyNewerVersion)
 
 # generate our config file for find_package()
 configure_file (deltafs-nexus-config.cmake.in deltafs-nexus-config.cmake @ONLY)

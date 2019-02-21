@@ -55,7 +55,7 @@ find_package (Threads REQUIRED)
 find_package (mercury CONFIG REQUIRED)
 
 find_package (MPI MODULE REQUIRED)
-# XXX: mpich on ub14 gives a leading space that we need to trim off
+# XXX: avoid issues when MPI_CXX_COMPILE_FLAGS contains leading spaces
 string (REPLACE " " ";" MPI_CXX_COMPILE_FLAGS_LIST "${MPI_CXX_COMPILE_FLAGS}")
 
 add_subdirectory (src)
