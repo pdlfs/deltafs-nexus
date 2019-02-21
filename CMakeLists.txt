@@ -51,7 +51,6 @@ if (${CMAKE_BUILD_TYPE} STREQUAL "Debug")
 endif ()
 
 # Find required packages
-find_package (Threads REQUIRED)
 find_package (mercury CONFIG REQUIRED)
 
 find_package (MPI MODULE REQUIRED)

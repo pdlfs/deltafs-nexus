@@ -14,6 +14,8 @@ include (CMakePackageConfigHelpers)
 set (CMAKE_THREAD_PREFER_PTHREAD TRUE)
 set (THREADS_PREFER_PTHREAD_FLAG TRUE)
 
+find_package (Threads REQUIRED)
+
 # where to install files for "find_package"
 set (deltafs-nexus-pkg-loc "share/cmake/deltafs-nexus")
 
