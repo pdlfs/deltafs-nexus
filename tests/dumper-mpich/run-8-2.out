@@ -1,0 +1,177 @@
+grank2node: 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7
+node 0
+  local2global: 0 8
+  node2rep: 0 1 2 3 4 5 6 7
+  proc 0.0 (global rank 0, raddr-0-0)
+    lmap:
+      0.0 0 => laddr-0-0
+      0.1 8 => laddr-0-1
+    rmap:
+      2 => raddr-2-0
+      4 => raddr-4-0
+      6 => raddr-6-0
+    end
+  proc 0.1 (global rank 8, raddr-0-1)
+    lmap:
+      0.0 0 => laddr-0-0
+      0.1 8 => laddr-0-1
+    rmap:
+      1 => raddr-1-0
+      3 => raddr-3-0
+      5 => raddr-5-0
+      7 => raddr-7-0
+    end
+node 1
+  local2global: 1 9
+  node2rep: 8 9 10 11 12 13 14 15
+  proc 1.0 (global rank 1, raddr-1-0)
+    lmap:
+      1.0 1 => laddr-1-0
+      1.1 9 => laddr-1-1
+    rmap:
+      0 => raddr-0-1
+      2 => raddr-2-1
+      4 => raddr-4-1
+      6 => raddr-6-1
+    end
+  proc 1.1 (global rank 9, raddr-1-1)
+    lmap:
+      1.0 1 => laddr-1-0
+      1.1 9 => laddr-1-1
+    rmap:
+      3 => raddr-3-1
+      5 => raddr-5-1
+      7 => raddr-7-1
+    end
+node 2
+  local2global: 2 10
+  node2rep: 0 1 2 3 4 5 6 7
+  proc 2.0 (global rank 2, raddr-2-0)
+    lmap:
+      2.0 2 => laddr-2-0
+      2.1 10 => laddr-2-1
+    rmap:
+      0 => raddr-0-0
+      4 => raddr-4-0
+      6 => raddr-6-0
+    end
+  proc 2.1 (global rank 10, raddr-2-1)
+    lmap:
+      2.0 2 => laddr-2-0
+      2.1 10 => laddr-2-1
+    rmap:
+      1 => raddr-1-0
+      3 => raddr-3-0
+      5 => raddr-5-0
+      7 => raddr-7-0
+    end
+node 3
+  local2global: 3 11
+  node2rep: 8 9 10 11 12 13 14 15
+  proc 3.0 (global rank 3, raddr-3-0)
+    lmap:
+      3.0 3 => laddr-3-0
+      3.1 11 => laddr-3-1
+    rmap:
+      0 => raddr-0-1
+      2 => raddr-2-1
+      4 => raddr-4-1
+      6 => raddr-6-1
+    end
+  proc 3.1 (global rank 11, raddr-3-1)
+    lmap:
+      3.0 3 => laddr-3-0
+      3.1 11 => laddr-3-1
+    rmap:
+      1 => raddr-1-1
+      5 => raddr-5-1
+      7 => raddr-7-1
+    end
+node 4
+  local2global: 4 12
+  node2rep: 0 1 2 3 4 5 6 7
+  proc 4.0 (global rank 4, raddr-4-0)
+    lmap:
+      4.0 4 => laddr-4-0
+      4.1 12 => laddr-4-1
+    rmap:
+      0 => raddr-0-0
+      2 => raddr-2-0
+      6 => raddr-6-0
+    end
+  proc 4.1 (global rank 12, raddr-4-1)
+    lmap:
+      4.0 4 => laddr-4-0
+      4.1 12 => laddr-4-1
+    rmap:
+      1 => raddr-1-0
+      3 => raddr-3-0
+      5 => raddr-5-0
+      7 => raddr-7-0
+    end
+node 5
+  local2global: 5 13
+  node2rep: 8 9 10 11 12 13 14 15
+  proc 5.0 (global rank 5, raddr-5-0)
+    lmap:
+      5.0 5 => laddr-5-0
+      5.1 13 => laddr-5-1
+    rmap:
+      0 => raddr-0-1
+      2 => raddr-2-1
+      4 => raddr-4-1
+      6 => raddr-6-1
+    end
+  proc 5.1 (global rank 13, raddr-5-1)
+    lmap:
+      5.0 5 => laddr-5-0
+      5.1 13 => laddr-5-1
+    rmap:
+      1 => raddr-1-1
+      3 => raddr-3-1
+      7 => raddr-7-1
+    end
+node 6
+  local2global: 6 14
+  node2rep: 0 1 2 3 4 5 6 7
+  proc 6.0 (global rank 6, raddr-6-0)
+    lmap:
+      6.0 6 => laddr-6-0
+      6.1 14 => laddr-6-1
+    rmap:
+      0 => raddr-0-0
+      2 => raddr-2-0
+      4 => raddr-4-0
+    end
+  proc 6.1 (global rank 14, raddr-6-1)
+    lmap:
+      6.0 6 => laddr-6-0
+      6.1 14 => laddr-6-1
+    rmap:
+      1 => raddr-1-0
+      3 => raddr-3-0
+      5 => raddr-5-0
+      7 => raddr-7-0
+    end
+node 7
+  local2global: 7 15
+  node2rep: 8 9 10 11 12 13 14 15
+  proc 7.0 (global rank 7, raddr-7-0)
+    lmap:
+      7.0 7 => laddr-7-0
+      7.1 15 => laddr-7-1
+    rmap:
+      0 => raddr-0-1
+      2 => raddr-2-1
+      4 => raddr-4-1
+      6 => raddr-6-1
+    end
+  proc 7.1 (global rank 15, raddr-7-1)
+    lmap:
+      7.0 7 => laddr-7-0
+      7.1 15 => laddr-7-1
+    rmap:
+      1 => raddr-1-1
+      3 => raddr-3-1
+      5 => raddr-5-1
+    end

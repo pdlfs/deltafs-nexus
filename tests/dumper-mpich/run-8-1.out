@@ -1,0 +1,121 @@
+grank2node: 0 1 2 3 4 5 6 7
+node 0
+  local2global: 0
+  node2rep: 0 1 2 3 4 5 6 7
+  proc 0.0 (global rank 0, raddr-0-0)
+    lmap:
+      0.0 0 => laddr-0-0
+    rmap:
+      1 => raddr-1-0
+      2 => raddr-2-0
+      3 => raddr-3-0
+      4 => raddr-4-0
+      5 => raddr-5-0
+      6 => raddr-6-0
+      7 => raddr-7-0
+    end
+node 1
+  local2global: 1
+  node2rep: 0 1 2 3 4 5 6 7
+  proc 1.0 (global rank 1, raddr-1-0)
+    lmap:
+      1.0 1 => laddr-1-0
+    rmap:
+      0 => raddr-0-0
+      2 => raddr-2-0
+      3 => raddr-3-0
+      4 => raddr-4-0
+      5 => raddr-5-0
+      6 => raddr-6-0
+      7 => raddr-7-0
+    end
+node 2
+  local2global: 2
+  node2rep: 0 1 2 3 4 5 6 7
+  proc 2.0 (global rank 2, raddr-2-0)
+    lmap:
+      2.0 2 => laddr-2-0
+    rmap:
+      0 => raddr-0-0
+      1 => raddr-1-0
+      3 => raddr-3-0
+      4 => raddr-4-0
+      5 => raddr-5-0
+      6 => raddr-6-0
+      7 => raddr-7-0
+    end
+node 3
+  local2global: 3
+  node2rep: 0 1 2 3 4 5 6 7
+  proc 3.0 (global rank 3, raddr-3-0)
+    lmap:
+      3.0 3 => laddr-3-0
+    rmap:
+      0 => raddr-0-0
+      1 => raddr-1-0
+      2 => raddr-2-0
+      4 => raddr-4-0
+      5 => raddr-5-0
+      6 => raddr-6-0
+      7 => raddr-7-0
+    end
+node 4
+  local2global: 4
+  node2rep: 0 1 2 3 4 5 6 7
+  proc 4.0 (global rank 4, raddr-4-0)
+    lmap:
+      4.0 4 => laddr-4-0
+    rmap:
+      0 => raddr-0-0
+      1 => raddr-1-0
+      2 => raddr-2-0
+      3 => raddr-3-0
+      5 => raddr-5-0
+      6 => raddr-6-0
+      7 => raddr-7-0
+    end
+node 5
+  local2global: 5
+  node2rep: 0 1 2 3 4 5 6 7
+  proc 5.0 (global rank 5, raddr-5-0)
+    lmap:
+      5.0 5 => laddr-5-0
+    rmap:
+      0 => raddr-0-0
+      1 => raddr-1-0
+      2 => raddr-2-0
+      3 => raddr-3-0
+      4 => raddr-4-0
+      6 => raddr-6-0
+      7 => raddr-7-0
+    end
+node 6
+  local2global: 6
+  node2rep: 0 1 2 3 4 5 6 7
+  proc 6.0 (global rank 6, raddr-6-0)
+    lmap:
+      6.0 6 => laddr-6-0
+    rmap:
+      0 => raddr-0-0
+      1 => raddr-1-0
+      2 => raddr-2-0
+      3 => raddr-3-0
+      4 => raddr-4-0
+      5 => raddr-5-0
+      7 => raddr-7-0
+    end
+node 7
+  local2global: 7
+  node2rep: 0 1 2 3 4 5 6 7
+  proc 7.0 (global rank 7, raddr-7-0)
+    lmap:
+      7.0 7 => laddr-7-0
+    rmap:
+      0 => raddr-0-0
+      1 => raddr-1-0
+      2 => raddr-2-0
+      3 => raddr-3-0
+      4 => raddr-4-0
+      5 => raddr-5-0
+      6 => raddr-6-0
+    end

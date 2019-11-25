@@ -4,10 +4,11 @@
 
 use strict;
 my($bin, $d2m) = @ARGV;
-my($host2, $host3, $host4);
+my($host2, $host3, $host4, $host8);
 $host2 = "--hosts h0,h1";
 $host3 = "--hosts h0,h1,h2";
 $host4 = "--hosts h0,h1,h2,h3";
+$host8 = "--hosts h0,h1,h2,h3,h4,h5,h6,h7";
 
 die "not executable: $bin" unless (-x $bin);
 print "test program: $bin\n";
@@ -49,6 +50,17 @@ system("$d2m TRY.0.id > run-4-1.out");
 system("mpirun -n 16 $host4 $bin bmi+tcp TRY");
 sleep(10);     # need to wait for NFS
 system("$d2m TRY.0.id > run-4-4.out");
+
+# 8 nodes
+system("mpirun -n 8 $host8 $bin bmi+tcp TRY");
+sleep(10);     # need to wait for NFS
+system("$d2m TRY.0.id > run-8-1.out");
+system("mpirun -n 16 $host8 $bin bmi+tcp TRY");
+sleep(10);     # need to wait for NFS
+system("$d2m TRY.0.id > run-8-2.out");
+system("mpirun -n 64 $host8 $bin bmi+tcp TRY");
+sleep(10);     # need to wait for NFS
+system("$d2m TRY.0.id > run-8-8.out");
 
 
 system("rm TRY.*");
