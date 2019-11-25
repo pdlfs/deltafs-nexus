@@ -1,0 +1,33 @@
+grank2node: 0 1 0 1
+node 0
+  local2global: 0 2
+  node2rep: 0 1
+  proc 0.0 (global rank 0, raddr-0-0)
+    lmap:
+      0.0 0 => laddr-0-0
+      0.1 2 => laddr-0-1
+    rmap:
+    end
+  proc 0.1 (global rank 2, raddr-0-1)
+    lmap:
+      0.0 0 => laddr-0-0
+      0.1 2 => laddr-0-1
+    rmap:
+      1 => raddr-1-0
+    end
+node 1
+  local2global: 1 3
+  node2rep: 2 3
+  proc 1.0 (global rank 1, raddr-1-0)
+    lmap:
+      1.0 1 => laddr-1-0
+      1.1 3 => laddr-1-1
+    rmap:
+      0 => raddr-0-1
+    end
+  proc 1.1 (global rank 3, raddr-1-1)
+    lmap:
+      1.0 1 => laddr-1-0
+      1.1 3 => laddr-1-1
+    rmap:
+    end

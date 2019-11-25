@@ -1,0 +1,55 @@
+#!/usr/bin/env perl
+
+# example: ./DOIT ../../b/tests/nexus-dumper ../dump2map.pl
+
+use strict;
+my($bin, $d2m) = @ARGV;
+my($host2, $host3, $host4);
+$host2 = "--hosts h0,h1";
+$host3 = "--hosts h0,h1,h2";
+$host4 = "--hosts h0,h1,h2,h3";
+
+die "not executable: $bin" unless (-x $bin);
+print "test program: $bin\n";
+die "not executable: $d2m" unless (-x $d2m);
+print "dump2map: $d2m\n";
+
+# 1 node
+system("mpirun -n 1 $bin bmi+tcp TRY");
+system("$d2m TRY.0.id > run-1-1.out");
+system("mpirun -n 4 $bin bmi+tcp TRY");
+system("$d2m TRY.0.id > run-1-4.out");
+
+# 2 nodes
+system("mpirun -n 2 $host2 $bin bmi+tcp TRY");
+sleep(10);     # need to wait for NFS
+system("$d2m TRY.0.id > run-2-1.out");
+system("mpirun -n 4 $host2 $bin bmi+tcp TRY");
+sleep(10);
+system("$d2m TRY.0.id > run-2-2.out");
+system("mpirun -n 6 $host2 $bin bmi+tcp TRY");
+sleep(10);
+system("$d2m TRY.0.id > run-2-3.out");
+system("mpirun -n 8 $host2 $bin bmi+tcp TRY");
+sleep(10);
+system("$d2m TRY.0.id > run-2-4.out");
+
+# 3 nodes
+system("mpirun -n 3 $host3 $bin bmi+tcp TRY");
+sleep(10);     # need to wait for NFS
+system("$d2m TRY.0.id > run-3-1.out");
+system("mpirun -n 12 $host3 $bin bmi+tcp TRY");
+sleep(10);     # need to wait for NFS
+system("$d2m TRY.0.id > run-3-4.out");
+
+# 4 nodes
+system("mpirun -n 4 $host4 $bin bmi+tcp TRY");
+sleep(10);     # need to wait for NFS
+system("$d2m TRY.0.id > run-4-1.out");
+system("mpirun -n 16 $host4 $bin bmi+tcp TRY");
+sleep(10);     # need to wait for NFS
+system("$d2m TRY.0.id > run-4-4.out");
+
+
+system("rm TRY.*");
+exit(0);
