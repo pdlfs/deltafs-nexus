@@ -28,3 +28,7 @@ foreach (tst ${tests})
                             ${CMAKE_BINARY_DIR} 8)
 
 endforeach ()
+
+# this is more of a diag program than a test
+add_executable(nexus-dumper nexus-dumper.cc)
+target_link_libraries (nexus-dumper deltafs-nexus)

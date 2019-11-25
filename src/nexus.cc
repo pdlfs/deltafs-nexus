@@ -112,6 +112,140 @@ int nexus_local_size(nexus_ctx_t nctx) {
   return nctx->lsize;
 }
 
+/*
+ * nexus_dump: dump nexus tables to stderr or files
+ */
+void nexus_dump(nexus_ctx_t nctx, char *outfile) {
+  char *fname, *addr;
+  int fnamelen, lcv;
+  hg_size_t addr_alloc_sz, sz;
+  FILE *fp;
+  nexus_map_t::iterator it;
+  hg_class_t *cls;
+  hg_return_t hret;
+  hg_addr_t self;
+  char selfstr[256];
+
+  if (outfile) {
+    fnamelen = strlen(outfile) + 32;  /* add room for suffix */
+    fname = (char *)malloc(fnamelen);
+    if (!fname) {
+      fprintf(stderr, "nexus_dump: fname malloc failed\n");
+      return;
+    }
+  } else {
+    fname = NULL;
+  }
+
+  addr_alloc_sz = (nctx->gaddrsz > nctx->laddrsz) ? nctx->gaddrsz
+                                                  : nctx->laddrsz;
+  addr = (char *)malloc(addr_alloc_sz);
+  if (!addr) {
+    fprintf(stderr, "nexus_dump: addr malloc failed\n");
+    if (fname) free(fname);
+    return;
+  }
+
+  if (outfile) {
+    snprintf(fname, fnamelen, "%s.%d.id", outfile, nctx->grank);
+    fp = fopen(fname, "w");
+    if (!fp) {
+      perror("nexus_dump");
+      goto done;
+    }
+  } else {
+    fp = stderr;
+  }
+
+  fprintf(fp, "NX-%d: %d %d %d %d %d %d\n", nctx->grank, nctx->grank,
+          nctx->gsize, nctx->lrank, nctx->lsize, nctx->nodeid,
+          nctx->nnodes);
+  selfstr[0] = '\0';
+  if (HG_Addr_self(nctx->hg_local->hg_cl, &self) == HG_SUCCESS) {
+    sz = sizeof(selfstr);
+    HG_Addr_to_string(nctx->hg_local->hg_cl, selfstr, &sz, self);
+    HG_Addr_free(nctx->hg_local->hg_cl, self);
+  }
+  fprintf(fp, "NX-%d: local %s\n", nctx->grank, selfstr);
+  selfstr[0] = '\0';
+  if (HG_Addr_self(nctx->hg_remote->hg_cl, &self) == HG_SUCCESS) {
+    sz = sizeof(selfstr);
+    HG_Addr_to_string(nctx->hg_remote->hg_cl, selfstr, &sz, self);
+    HG_Addr_free(nctx->hg_remote->hg_cl, self);
+  }
+  fprintf(fp, "NX-%d: remote %s\n", nctx->grank, selfstr);
+  fprintf(fp, "NX-%d: grank2node", nctx->grank);
+  for (lcv = 0 ; lcv < nctx->gsize ; lcv++) {
+    fprintf(fp, " %d", nctx->rank2node[lcv]);
+  }
+  fprintf(fp, "\n");
+  fprintf(fp, "NX-%d: local2global", nctx->grank);
+  for (lcv = 0 ; lcv < nctx->lsize ; lcv++) {
+    fprintf(fp, " %d", nctx->local2global[lcv]);
+  }
+  fprintf(fp, "\n");
+  fprintf(fp, "NX-%d: node2rep", nctx->grank);
+  if (nctx->node2rep) {
+    for (lcv = 0 ; lcv < nctx->nnodes ; lcv++) {
+      fprintf(fp, " %d", nctx->node2rep[lcv]);
+    }
+  }
+  fprintf(fp, "\n");
+
+  if (fp != stderr)
+    fclose(fp);
+
+  if (outfile) {
+    snprintf(fname, fnamelen, "%s.%d.lmap", outfile, nctx->grank);
+    fp = fopen(fname, "w");
+    if (!fp) {
+      perror("nexus_dump");
+      goto done;
+    }
+  } else {
+    fp = stderr;
+  }
+
+  cls = nctx->hg_local->hg_cl;
+  it = nctx->lmap.begin();
+  for (; it != nctx->lmap.end(); ++it) {
+    sz = addr_alloc_sz;
+    hret = HG_Addr_to_string(cls, addr, &sz, it->second);
+    if (hret != HG_SUCCESS) strcpy(addr, "n/a");
+    fprintf(fp, "NX-%d: lmap %d %s\n", nctx->grank, it->first, addr);
+  }
+  if (fp != stderr)
+    fclose(fp);
+  
+  if (outfile) {
+    snprintf(fname, fnamelen, "%s.%d.rmap", outfile, nctx->grank);
+    fp = fopen(fname, "w");
+    if (!fp) {
+      perror("nexus_dump");
+      goto done;
+    }
+  } else {
+    fp = stderr;
+  }
+
+  cls = nctx->hg_remote->hg_cl;
+  it = nctx->rmap.begin();
+  for (; it != nctx->rmap.end(); ++it) {
+    sz = addr_alloc_sz;
+    hret = HG_Addr_to_string(cls, addr, &sz, it->second);
+    if (hret != HG_SUCCESS) strcpy(addr, "n/a");
+    fprintf(fp, "NX-%d: rmap %d %s\n", nctx->grank, it->first, addr);
+  }
+  if (fp != stderr)
+    fclose(fp);
+  
+
+done:
+  if (fname) free(fname);
+  if (addr) free(addr);
+  return;
+}
+
 nexus_ret_t nexus_global_barrier(nexus_ctx_t nctx) {
   assert(nctx != NULL);
   int rv = MPI_Barrier(MPI_COMM_WORLD);

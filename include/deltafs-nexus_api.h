@@ -161,6 +161,14 @@ hg_context_t* nexus_hgcontext_local(nexus_ctx_t nctx);
 hg_context_t* nexus_hgcontext_remote(nexus_ctx_t nctx);
 
 /**
+ * Dump nexus tables (for debugging)
+ *
+ * @param nctx context
+ * @param outfile output file (NULL means dump to stderr)
+ */
+void nexus_dump(nexus_ctx_t nctx, char *outfile);
+
+/**
  * Allocate a new iterator.  nctx must remain active while iter is
  * allocated.  must free iterator when done.
  *
