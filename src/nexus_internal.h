@@ -41,28 +41,22 @@
 
 typedef std::map<int, hg_addr_t> nexus_map_t;
 
-/* nexus_hg_state: state for an opened mercury instance */
-typedef struct nexus_hg_state {
-  hg_context_t* hg_ctx;
-  hg_class_t* hg_cl;
-  int refs;
-} nexus_hg_t;
-
 /*
  * nexus_ctx: nexus internal state
  */
 struct nexus_ctx {
-  int grank;   /* my global rank */
-  int gsize;   /* total number of ranks */
-  int gaddrsz; /* max string size needed for global address */
+  MPI_Comm mycomm;  /* my top-level comm (e.g. comm world) */
+  int grank;        /* my global rank */
+  int gsize;        /* total number of ranks */
+  int gaddrsz;      /* max string size needed for global address */
 
-  int nodeid; /* global id of node */
-  int nnodes; /* total number of nodes */
+  int nodeid;       /* global id of node */
+  int nnodes;       /* total number of nodes */
 
-  int lrank;   /* my local rank */
-  int lsize;   /* number of local ranks */
-  int lroot;   /* global rank of local root */
-  int laddrsz; /* max string size needed for local address */
+  int lrank;        /* my local rank */
+  int lsize;        /* number of local ranks */
+  int lroot;        /* global rank of local root */
+  int laddrsz;      /* max string size needed for local address */
 
   int* local2global; /* local rank -> the local peer's global rank */
   int* rank2node;    /* global rank -> its node id */
@@ -74,9 +68,17 @@ struct nexus_ctx {
   MPI_Comm localcomm;
   MPI_Comm repcomm;
 
-  nexus_hg_t* hg_remote;
-  nexus_hg_t* hg_local;
+  progressor_handle_t *hg_remote;    /* dup'd handle, if !NULL */
+  progressor_handle_t *hg_local;     /* dup'd handle, if !NULL */
 
   /* max pending hg addr lookup requests */
   int nx_limit;
 };
+
+/*
+ * internal function prototypes
+ */
+int nx_build_lmap(nexus_ctx_t nctx);
+int nx_build_rmap(nexus_ctx_t nctx);
+void nx_destroy(nexus_ctx_t nctx, int do_barrier);
+int nx_mpisetup(nexus_ctx_t nctx);

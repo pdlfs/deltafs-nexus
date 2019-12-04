@@ -38,168 +38,49 @@
 
 #include "nexus_internal.h"
 
-#define DEFAULT_NX_LIMIT 4
-#define TMPADDRSZ 64
+/* macro for error handling */
+#define GOTO_DONE(N) do { retval = (N); goto done; } while (0)
 
 namespace {
+
+/*
+ * xchg_dat_t: structure used to exchange mercury addressing info,
+ * including url address string, over MPI.  the address buffer
+ * (fixed sized to largest value needed) follows the structure.
+ * after we use MPI to exchange info, we then pass this to nx_lookup_addrs()
+ * to convert the url strings into hg_addr_t's.
+ */
 typedef struct {
-  int grank;
-  int idx;
-  char addr[];
+  int grank;      /* a global rank */
+  int idx;        /* map index (key) to store hg_addr_t under */
+  char addr[];    /* address string (follows structure in memory) */
 } xchg_dat_t;
 
-/* nx_fatal: abort with a message */
-void nx_fatal(const char* msg) {
-  if (errno != 0)
-    fprintf(stderr, "NX FATAL: %s (%s)\n", msg, strerror(errno));
-  else
-    fprintf(stderr, "NX FATAL: %s\n", msg);
-
-  abort();
-}
-
-/* nx_is_envset: check if a given env is set */
-bool nx_is_envset(const char* name) {
-  char* env = getenv(name);
-  if (env == NULL || env[0] == 0) return false;
-  return strcmp(env, "0") != 0;
-}
-
-struct bgthread_dat {
-  hg_context_t* hgctx;
-  nexus_ctx_t nctx;
-  int bgdone;
-};
-
-/*
- * network support pthread. Need to call progress to push the network and then
- * trigger to run the callback.
- */
-void* nx_bgthread(void* arg) {
-  struct bgthread_dat* const bgdat = (struct bgthread_dat*)arg;
-  hg_return_t hret;
-  int r = bgdat->nctx->grank;
-#ifdef NEXUS_DEBUG
-  fprintf(stderr, "NX-%d: BG UP\n", r);
-#endif
-
-  while (!bgdat->bgdone) {
-    unsigned int count = 0;
-    do {
-      hret = HG_Trigger(bgdat->hgctx, 0, 1, &count);
-    } while (hret == HG_SUCCESS && count);
-
-    if (hret != HG_SUCCESS && hret != HG_TIMEOUT) {
-      nx_fatal("bg:HG_Trigger");
-    }
-    hret = HG_Progress(bgdat->hgctx, 100);
-    if (hret != HG_SUCCESS && hret != HG_TIMEOUT) {
-      nx_fatal("bg:HG_Progress");
-    }
-  }
-
-#ifdef NEXUS_DEBUG
-  fprintf(stderr, "NX-%d: BG DOWN\n", r);
-#endif
-  return NULL;
-}
-
-/*
- * nx_get_ipmatch: look at our interfaces and find an IP address that
- * matches our spec...  aborts on failure.
- */
-void nx_get_ipmatch(char* subnet, char* i, int ilen) {
-  struct ifaddrs *ifaddr, *cur;
-  int family;
-
-  /* Query local socket layer to get our IP addr */
-  if (getifaddrs(&ifaddr) == -1) nx_fatal("getifaddrs failed");
-
-  for (cur = ifaddr; cur != NULL; cur = cur->ifa_next) {
-    if (cur->ifa_addr != NULL) {
-      family = cur->ifa_addr->sa_family;
-
-      if (family == AF_INET) {
-        if (getnameinfo(cur->ifa_addr, sizeof(struct sockaddr_in), i, ilen,
-                        NULL, 0, NI_NUMERICHOST) == -1)
-          nx_fatal("getnameinfo failed");
-
-        if (strncmp(subnet, i, strlen(subnet)) == 0) break;
-      }
-    }
-  }
-
-  if (cur == NULL) nx_fatal("no ip addr");
-
-  freeifaddrs(ifaddr);
-}
-
-/*
- * Put together the remote Mercury endpoint address from bootstrap parameters.
- * Writes the server URI into *uri on success. Aborts on error.
- */
-void nx_prepare_addr(nexus_ctx_t nctx, char* subnet, char* proto, char* uri) {
-  char ip[16];
-  int lcv, port, so, n;
-  struct sockaddr_in addr;
-  socklen_t addr_len = sizeof(addr);
-
-  nx_get_ipmatch(subnet, ip, sizeof(ip)); /* fill ip w/req'd local IP */
-
-  if (strcmp(proto, "bmi+tcp") == 0) {
-    /*
-     * XXX: bmi+tcp HG_Addr_to_string() is broken.  if we request
-     * port 0 (to let OS fill in) and later use HG_Addr_to_string()
-     * to request the actual port number allocated, it still returns
-     * 0 as the port number...   here's an attempt to hack around
-     * this bug.
-     */
-    so = socket(PF_INET, SOCK_STREAM, 0);
-    if (so < 0) nx_fatal("bmi:socket1");
-    n = 1;
-    setsockopt(so, SOL_SOCKET, SO_REUSEADDR, &n, sizeof(n));
-    for (lcv = 0; lcv < 1024; lcv++) {
-      /* have each local rank try a different set of ports */
-      port = 10000 + (lcv * nctx->lsize) + nctx->lrank;
-      addr.sin_family = AF_INET;
-      addr.sin_addr.s_addr = INADDR_ANY;
-      addr.sin_port = htons(port);
-      n = bind(so, (struct sockaddr*)&addr, addr_len);
-      if (n == 0) break;
-    }
-    close(so);
-    if (n != 0) nx_fatal("bmi:socket2");
-
-    sprintf(uri, "%s://%s:%d", proto, ip, port);
-
-  } else {
-    /* set port 0, let OS fill it, collect later w/HG_Addr_to_string */
-    sprintf(uri, "%s://%s:0", proto, ip);
-  }
-}
-
+/* nx_lookup_ctx: state for a nx_lookup operation */
 struct nx_lookup_ctx {
-  /* the address map we'll be updating */
-  nexus_map_t* nx_map;
-  /* num of ops done */
-  int done;
-
-  pthread_mutex_t cb_mutex;
-  pthread_cond_t cb_cv;
+  pthread_mutex_t cb_mutex;   /* syncs caller with callback */
+  pthread_cond_t cb_cv;       /* caller waits for callbacks here */
+  nexus_map_t* nx_map;        /* the address map we'll be updating */
+  int done;                   /* num of ops done */
 };
 
+/* nx_lookup_out: arg passed to lookup callback nx_lookup_cb() */
 struct nx_lookup_out {
-  struct nx_lookup_ctx* ctx;
-  hg_return_t hret;
-  int idx;
+  struct nx_lookup_ctx* ctx;  /* lookup context that owns this lookup */
+  hg_return_t hret;           /* lookup return value */
+  int idx;                    /* map index/key to store addr in if success */
 };
 
+/*
+ * nx_lookup_cb: adress lookup callback function.  find our nx_lookup_out,
+ * plug in the results of the lookup, and then notify the caller.
+ */
 hg_return_t nx_lookup_cb(const struct hg_cb_info* info) {
   struct nx_lookup_out* const out = (struct nx_lookup_out*)info->arg;
-  out->hret = info->ret;
 
   pthread_mutex_lock(&out->ctx->cb_mutex);
 
+  out->hret = info->ret;
   if (out->hret == HG_SUCCESS)
     (*(out->ctx->nx_map))[out->idx] = info->info.lookup.addr;
   out->ctx->done += 1;
@@ -210,32 +91,47 @@ hg_return_t nx_lookup_cb(const struct hg_cb_info* info) {
   return HG_SUCCESS;
 }
 
-hg_return_t nx_lookup_addrs(nexus_ctx_t nctx, nexus_hg_t* hg, xchg_dat_t* xarr,
-                            int xsize, int addrsz, nexus_map_t* map) {
-  struct nx_lookup_out* out;
-  hg_addr_t self_addr;
-  hg_return_t hret;
-
+/*
+ * nx_lookup_addrs: look up a bunch of mercury address strings
+ *
+ * @param nx the nexus context we are working in
+ * @param phand the progressor to use for lookups
+ * @param xarr xchg array with "xsize" entries
+ * @param addrsz sizeof() one entry in xarr[]
+ * @param map map to put results in
+ * @return 0 or -1 on failure
+ */
+int nx_lookup_addrs(nexus_ctx_t nx, progressor_handle_t *phand,
+                    xchg_dat_t *xarr, int xsize, int addrsz,
+                    nexus_map_t *map) {
+  int retval = 0;               /* assume success, set to -1 on error */
   struct nx_lookup_ctx ctx;
-  out = (struct nx_lookup_out*)malloc(sizeof(*out) * xsize);
-  if (out == NULL) return HG_NOMEM_ERROR;
+  struct nx_lookup_out* out;    /* array: out[0 .. (xsize-1)] */
+  int local, eff_offset, i;
+  hg_return_t hret;
+  hg_addr_t self_addr;
 
-  hret = HG_SUCCESS;
   pthread_mutex_init(&ctx.cb_mutex, NULL);
   pthread_cond_init(&ctx.cb_cv, NULL);
   ctx.nx_map = map;
   ctx.done = 0;
 
+  out = (struct nx_lookup_out*)malloc(sizeof(*out) * xsize);
+  if (!out) {
+    fprintf(stderr, "nx_lookup_addrs: malloc failed\n");
+    GOTO_DONE(-1);
+  }
+
   /* determine if we are local, use my rank as starting point */
-  const int local = (hg == nctx->hg_local);
-  int eff_offset = (local) ? nctx->lrank : nctx->grank;
-  int i = 0;
+  local = (phand == nx->hg_local);
+  eff_offset = (local) ? nx->lrank : nx->grank;
+  i = 0;
 
+  hret = HG_SUCCESS;
   pthread_mutex_lock(&ctx.cb_mutex);
-
   while (hret == HG_SUCCESS && i < xsize) {
     int remain = xsize - i;
-    int cando = remain < nctx->nx_limit ? remain : nctx->nx_limit;
+    int cando = (remain < nx->nx_limit) ? remain : nx->nx_limit;
 
     /* start as many as we can */
     while (hret == HG_SUCCESS && cando-- > 0) {
@@ -245,18 +141,19 @@ hg_return_t nx_lookup_addrs(nexus_ctx_t nctx, nexus_hg_t* hg, xchg_dat_t* xarr,
           (xchg_dat_t*)(((char*)xarr) + eff_i * (sizeof(*xi) + addrsz));
 
       out[eff_i].hret = HG_SUCCESS;
-      out[eff_i].idx = xi->idx;
+      out[eff_i].idx = xi->idx;      /* map key to use */
       out[eff_i].ctx = &ctx;
 
-      if (xi->grank != nctx->grank) {
+      if (xi->grank != nx->grank) {
         pthread_mutex_unlock(&ctx.cb_mutex);
 
-        hret = HG_Addr_lookup(hg->hg_ctx, &nx_lookup_cb, &out[eff_i], xi->addr,
+        hret = HG_Addr_lookup(mercury_progressor_hgcontext(phand),
+                              &nx_lookup_cb, &out[eff_i], xi->addr,
                               HG_OP_ID_IGNORE);
 
         pthread_mutex_lock(&ctx.cb_mutex);
       } else {
-        hret = HG_Addr_self(hg->hg_cl, &self_addr);
+        hret = HG_Addr_self(mercury_progressor_hgclass(phand), &self_addr);
 
         if (hret == HG_SUCCESS) { /* directly add address to map */
           (*(ctx.nx_map))[xi->idx] = self_addr;
@@ -269,15 +166,14 @@ hg_return_t nx_lookup_addrs(nexus_ctx_t nctx, nexus_hg_t* hg, xchg_dat_t* xarr,
         out[eff_i].hret = hret;
         ctx.done += 1;
       }
-
       i++;
-    }
+    }    /* cando */
 
     while (ctx.done < i) { /* XXX: ok to break out if just one slot is free? */
       pthread_cond_wait(&ctx.cb_cv, &ctx.cb_mutex);
     }
-  }
 
+  }      /* i < xsize */
   pthread_mutex_unlock(&ctx.cb_mutex);
 
   hret = HG_SUCCESS;
@@ -288,247 +184,178 @@ hg_return_t nx_lookup_addrs(nexus_ctx_t nctx, nexus_hg_t* hg, xchg_dat_t* xarr,
       break;
     }
   }
+  if (hret != HG_SUCCESS) {
+    fprintf(stderr, "nx_lookup_addrs: mercury lookup error %d\n", hret);
+    GOTO_DONE(-1);
+  }
 
-  free(out);
-
+done:
+  if (out) free(out);
   pthread_cond_destroy(&ctx.cb_cv);
   pthread_mutex_destroy(&ctx.cb_mutex);
-  return hret;
+  return(retval);
 }
 
-/*
- * nx_dump_addrs: dump a given map to stderr.
- */
-void nx_dump_addrs(nexus_ctx_t nctx, nexus_hg_t* hg, nexus_map_t* map) {
-  char addr[TMPADDRSZ];
-  hg_return_t hret;
+} // namespace
 
-  const char* map_name = (map == &nctx->lmap) ? "lmap" : "rmap";
-  nexus_map_t::iterator it = map->begin();
+/* nx_mpisetup: setup our MPI comms.  return -1 on error. */
+int nx_mpisetup(nexus_ctx_t nx) {
+  int color;
 
-  for (; it != map->end(); ++it) {
-    hg_size_t addr_sz = sizeof(addr);
-    hret = HG_Addr_to_string(hg->hg_cl, addr, &addr_sz, it->second);
-    if (hret != HG_SUCCESS) strcpy(addr, "n/a");
-    fprintf(stderr, "NX-%d: %s[%d]=%s\n", nctx->grank, map_name, it->first,
-            addr);
+  /* mycomm is our global comm, get our global rank & size from it */
+  if (MPI_Comm_rank(nx->mycomm, &nx->grank) != MPI_SUCCESS ||
+      MPI_Comm_size(nx->mycomm, &nx->gsize) != MPI_SUCCESS) {
+    fprintf(stderr, "nx_mpisetup: can't get grank/gsize\n");
+    return(-1);
   }
+
+  /* split out local procs into a new localcomm and get local rank/size */
+  if (MPI_Comm_split_type(nx->mycomm, MPI_COMM_TYPE_SHARED, 0,
+                          MPI_INFO_NULL, &nx->localcomm) != MPI_SUCCESS ||
+      MPI_Comm_rank(nx->localcomm, &nx->lrank) != MPI_SUCCESS         ||
+      MPI_Comm_size(nx->localcomm, &nx->lsize) != MPI_SUCCESS) {
+    fprintf(stderr, "nx_mpisetup: comm local split failed\n");
+    return(-1);
+  }
+
+  /* generate local2global[] - a mapping from local rank to global rank  */
+  nx->local2global = (int *)malloc(sizeof(int) * nx->lsize);
+  if (!nx->local2global) {
+    fprintf(stderr, "nx_mpisetup: local2global malloc failed\n");
+    return(-1);
+  }
+  if (MPI_Allgather(&nx->grank, 1, MPI_INT, nx->local2global, 1, MPI_INT,
+                    nx->localcomm) != MPI_SUCCESS) {
+    fprintf(stderr, "nx_mpisetup: local2global allgather failed\n");
+    return(-1);
+  }
+
+  /* get global rank of local rank 0 (a.k.a. lroot) */
+  nx->lroot = nx->local2global[0];
+
+  /* split out the repcomm (has all local rank 0's) */
+  color = (nx->grank == nx->lroot) ? 1 : MPI_UNDEFINED; /* am I in? */
+  if (MPI_Comm_split(nx->mycomm, color, nx->grank, &nx->repcomm) !=
+      MPI_SUCCESS) {
+    fprintf(stderr, "nx_mpisetup: rep split failed\n");
+    return(-1);
+  }
+
+  /* only local rank 0 gets the repcomm - get nodeid and nnodes */
+  if (nx->repcomm != MPI_COMM_NULL) {
+    if (MPI_Comm_rank(nx->repcomm, &nx->nodeid) != MPI_SUCCESS ||
+        MPI_Comm_size(nx->repcomm, &nx->nnodes) != MPI_SUCCESS) {
+      fprintf(stderr, "nx_mpisetup: local rank0 node setup failed\n");
+      return(-1);
+    }
+  }
+  /* now each local rank 0 can broadcast nodeid/nnodes to other local procs */
+  if (MPI_Bcast(&nx->nodeid, 1, MPI_INT, 0, nx->localcomm) != MPI_SUCCESS ||
+      MPI_Bcast(&nx->nnodes, 1, MPI_INT, 0, nx->localcomm) != MPI_SUCCESS) {
+      fprintf(stderr, "nx_mpisetup: node info dist failed\n");
+      return(-1);
+  }
+
+  /* generate rank2node[] - a mapping from global rank to its node id  */
+  nx->rank2node = (int*)malloc(sizeof(int) * nx->gsize);
+  if (!nx->rank2node) {
+    fprintf(stderr, "nx_mpisetup: rank2node malloc failed\n");
+    return(-1);
+  }
+  if (MPI_Allgather(&nx->nodeid, 1, MPI_INT, nx->rank2node, 1, MPI_INT,
+                nx->mycomm) != MPI_SUCCESS) {
+    fprintf(stderr, "nx_mpisetup: rank2node allgather failed\n");
+    return(-1);
+  }
+
+  return(0);
 }
 
-void nx_init_localcomm(nexus_ctx_t nctx) {
-  if (MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0,
-                          MPI_INFO_NULL, &nctx->localcomm) != MPI_SUCCESS)
-    nx_fatal("MPI_Comm_split_type");
-  if (MPI_Comm_rank(nctx->localcomm, &nctx->lrank) != MPI_SUCCESS)
-    nx_fatal("MPI_Comm_rank");
-  if (MPI_Comm_size(nctx->localcomm, &nctx->lsize) != MPI_SUCCESS)
-    nx_fatal("MPI_Comm_size");
+/* nx_build_lmap: build lmap.  return -1 on error. */
+int nx_build_lmap(nexus_ctx_t nx) {
+  int retval = 0;               /* assume success, set to -1 on error */
+  char *myaddrstr;
+  int my_sz, xchg_sz, rv;
+  xchg_dat_t *xitem = NULL, *xarray = NULL;
+
+  /* get my address, its length, and use MPI to get the max size for local */
+  myaddrstr = mercury_progressor_addrstring(nx->hg_local);
+  my_sz = strlen(myaddrstr) + 1;
+  if (MPI_Allreduce(&my_sz, &nx->laddrsz, 1, MPI_INT,
+                    MPI_MAX, nx->localcomm) != MPI_SUCCESS) {
+    fprintf(stderr, "nx_build_lmap: localcomm size reduce failed\n");
+    return(-1);
+  }
+  xchg_sz = sizeof(xchg_dat_t) + nx->laddrsz;
+
+  /* malloc buffers for MPI data exchange */
+  xitem = (xchg_dat_t *)malloc(xchg_sz);
+  xarray = (xchg_dat_t *)malloc(nx->lsize * xchg_sz);
+  if (!xitem || !xarray) {
+    fprintf(stderr, "nx_build_lmap: xchg malloc fail\n");
+    GOTO_DONE(-1);
+  }
+  xitem->grank = nx->grank;       /* my global rank */
+  xitem->idx = nx->grank;         /* use global rank as lmap key */
+  strcpy(xitem->addr, myaddrstr); /* copy addr over */
+
+  /* now exchange the local data */
+  if (MPI_Allgather(xitem, xchg_sz, MPI_BYTE, xarray, xchg_sz, MPI_BYTE,
+                nx->localcomm) != MPI_SUCCESS) {
+    fprintf(stderr, "nx_build_lmap: mpi all gather failed\n");
+    GOTO_DONE(-1);
+  }
+
+  /* now we need to fire up local mercury and do address lookups */
+  if (mercury_progressor_needed(nx->hg_local) != HG_SUCCESS) {
+    fprintf(stderr, "nx_build_lmap: progressor needed failed\n");
+    GOTO_DONE(-1);
+  }
+
+  MPI_Barrier(nx->localcomm);
+  rv = nx_lookup_addrs(nx, nx->hg_local, xarray, nx->lsize,
+                       nx->laddrsz, &nx->lmap);
+  if (rv < 0) {
+    retval = -1;
+    fprintf(stderr, "nx_build_lmap: nx_lookup_addrs failed\n");
+  }
+  MPI_Barrier(nx->localcomm);
+
+  /* now we can stop mercury */
+  if (mercury_progressor_idle(nx->hg_local) != HG_SUCCESS) {
+    fprintf(stderr, "nx_build_lmap: progressor idle failed\n");
+    GOTO_DONE(-1);
+  }
+
+done:
+  if (xitem) free(xitem);
+  if (xarray) free(xarray);
+  return(retval);
 }
 
-void nx_init_repcomm(nexus_ctx_t nctx) {
-  int color = (nctx->grank == nctx->lroot) ? 1 : MPI_UNDEFINED;
-  if (MPI_Comm_split(MPI_COMM_WORLD, color, nctx->grank, &nctx->repcomm) !=
-      MPI_SUCCESS)
-    nx_fatal("MPI_Comm_split");
-  if (nctx->repcomm != MPI_COMM_NULL) {
-    if (MPI_Comm_rank(nctx->repcomm, &nctx->nodeid) != MPI_SUCCESS)
-      nx_fatal("MPI_Comm_rank");
-    if (MPI_Comm_size(nctx->repcomm, &nctx->nnodes) != MPI_SUCCESS)
-      nx_fatal("MPI_Comm_size");
-  }
-}
+/* nx_build_rmap: build rmap.  return -1 on error. */
+int nx_build_rmap(nexus_ctx_t nx) {
+  int retval = 0;               /* assume success, set to -1 on error */
+  char *myaddrstr, *rank2addr = NULL, *addrcpy = NULL;
+  int my_sz, xchg_sz, rv, *nodeinfo = NULL, *myinfo = NULL;
+  int M, i, P, c;
+  xchg_dat_t *xitem = NULL, *xarray = NULL;
 
-/*
- * nx_setup_local_via_remote: setup the local network substrate by reusing the
- * remote substrate. must be called after nx_setup_local and nx_discover_remote.
- */
-void nx_setup_local_via_remote(nexus_ctx_t nctx) {
-  hg_addr_t addr_self;
-  hg_size_t addr_sz;
-  int ret, my_sz, xchg_sz;
-  char addr[TMPADDRSZ];
-  xchg_dat_t *xitm, *xarr;
-  pthread_t bgthread; /* network bg thread */
-  struct bgthread_dat bgarg;
-  hg_return_t hret;
-
-  assert(nctx->hg_remote != NULL);
-  assert(nctx->hg_local == NULL);
-  nctx->hg_local = nctx->hg_remote;
-  nctx->hg_local->refs++;
-
-  /* fetch self-address */
-  hret = HG_Addr_self(nctx->hg_local->hg_cl, &addr_self);
-  if (hret != HG_SUCCESS) {
-    nx_fatal("lo:HG_Addr_self");
-  }
-  addr_sz = sizeof(addr);
-  hret = HG_Addr_to_string(nctx->hg_local->hg_cl, addr, &addr_sz, addr_self);
-  if (hret != HG_SUCCESS) {
-    nx_fatal("lo:HG_Addr_to_string");
-  }
-  HG_Addr_free(nctx->hg_local->hg_cl, addr_self);
-  my_sz = strlen(addr) + 1;
-
-  /* determine the max address size for local comm */
-  MPI_Allreduce(&my_sz, &nctx->laddrsz, 1, MPI_INT, MPI_MAX, nctx->localcomm);
-  xchg_sz = sizeof(xchg_dat_t) + nctx->laddrsz;
-
-  /* exchange address and rank info within the local comm */
-  xitm = (xchg_dat_t*)malloc(xchg_sz);
-  if (!xitm) nx_fatal("malloc failed");
-  xitm->grank = nctx->grank;
-  xitm->idx = xitm->grank; /* use granks as address indexes */
-  strcpy(xitm->addr, addr);
-
-  xarr = (xchg_dat_t*)malloc(nctx->lsize * xchg_sz);
-  if (!xarr) nx_fatal("malloc failed");
-
-  MPI_Allgather(xitm, xchg_sz, MPI_BYTE, xarr, xchg_sz, MPI_BYTE,
-                nctx->localcomm);
-
-  /* lookup and store all mercury addresses */
-  bgarg.hgctx = nctx->hg_local->hg_ctx;
-  bgarg.bgdone = 0;
-  bgarg.nctx = nctx;
-
-  ret = pthread_create(&bgthread, NULL, nx_bgthread, (void*)&bgarg);
-  if (ret != 0) nx_fatal("pthread_create");
-
-  MPI_Barrier(nctx->localcomm);
-
-  hret = nx_lookup_addrs(nctx, nctx->hg_local, xarr, nctx->lsize, nctx->laddrsz,
-                         &nctx->lmap);
-  if (hret != HG_SUCCESS) {
-    nx_fatal("lo:HG_Addr_lookup");
+  /* get my address, its length, and use MPI to get the max size for remote */
+  myaddrstr = mercury_progressor_addrstring(nx->hg_remote);
+  my_sz = strlen(myaddrstr) + 1;
+  if (MPI_Allreduce(&my_sz, &nx->gaddrsz, 1, MPI_INT,
+                    MPI_MAX, nx->mycomm) != MPI_SUCCESS) {
+    fprintf(stderr, "nx_build_rmap: mycomm size reduce failed\n");
+    return(-1);
   }
 
-#ifdef NEXUS_DEBUG
-  nx_dump_addrs(nctx, nctx->hg_local, &nctx->lmap);
-#endif
-
-  MPI_Barrier(nctx->localcomm);
-
-  bgarg.bgdone = 1;
-  pthread_join(bgthread, NULL);
-
-  free(xarr);
-  free(xitm);
-}
-
-/*
- * nx_setup_local: setup the local network substrate with a local-optimized
- * communication mechanism (e.g. shared memory). if the local mechanism if
- * bypassed (NEXUS_BYPASS_LOCAL), the local substrate will be built on top of
- * the remote substrate and will only be initialized partially at this point. as
- * a result, nx_setup_local_via_remote must be called later to finish the
- * remaining work after nx_discover_remote is done.
- */
-void nx_setup_local(nexus_ctx_t nctx) {
-  char* nx_alt_proto;
-  int ret, my_sz, xchg_sz;
-  char addr[TMPADDRSZ];
-  xchg_dat_t *xitm, *xarr;
-  pthread_t bgthread; /* network bg thread */
-  struct bgthread_dat bgarg;
-  hg_return_t hret;
-
-  nx_init_localcomm(nctx);
-  memset(addr, 0, sizeof(addr));
-  nctx->hg_local = NULL;
-
-  /* first, we map each local rank to its global rank */
-  nctx->local2global = (int*)malloc(sizeof(int) * nctx->lsize);
-  if (!nctx->local2global) nx_fatal("malloc failed");
-
-  MPI_Allgather(&nctx->grank, 1, MPI_INT, nctx->local2global, 1, MPI_INT,
-                nctx->localcomm);
-
-  /* set the local root */
-  nctx->lroot = nctx->local2global[0];
-
-  /* next, we build the local network */
-  if (nx_is_envset("NEXUS_BYPASS_LOCAL")) return;
-  snprintf(addr, sizeof(addr), "na+sm://%d/0", getpid());
-
-  /* switch to an alternate local protocol if requested */
-  nx_alt_proto = getenv("NEXUS_ALT_LOCAL");
-  if (nx_alt_proto && strcmp(nx_alt_proto, "na+sm") != 0)
-    snprintf(addr, sizeof(addr), "%s://127.0.0.1:%d", nx_alt_proto,
-             19000 + nctx->lrank);
-
-#ifdef NEXUS_DEBUG
-  fprintf(stderr, "NX-%d: LOCAL %s\n", nctx->grank, addr);
-#endif
-
-  my_sz = strlen(addr) + 1;
-  nctx->hg_local = (nexus_hg_t*)malloc(sizeof(nexus_hg_t));
-  memset(nctx->hg_local, 0, sizeof(nexus_hg_t));
-  nctx->hg_local->refs = 1;
-  nctx->hg_local->hg_cl = HG_Init(addr, HG_TRUE);
-  if (!nctx->hg_local->hg_cl) {
-    nx_fatal("lo:HG_Init");
-  }
-  nctx->hg_local->hg_ctx = HG_Context_create(nctx->hg_local->hg_cl);
-  if (!nctx->hg_local->hg_ctx) {
-    nx_fatal("lo:HG_Context_create");
-  }
-
-  /* determine the max address size for local comm */
-  MPI_Allreduce(&my_sz, &nctx->laddrsz, 1, MPI_INT, MPI_MAX, nctx->localcomm);
-  xchg_sz = sizeof(xchg_dat_t) + nctx->laddrsz;
-
-  /* exchange address and rank info within the local comm */
-  xitm = (xchg_dat_t*)malloc(xchg_sz);
-  if (!xitm) nx_fatal("malloc failed");
-  xitm->grank = nctx->grank;
-  xitm->idx = xitm->grank; /* use granks as address indexes */
-  strcpy(xitm->addr, addr);
-
-  xarr = (xchg_dat_t*)malloc(nctx->lsize * xchg_sz);
-  if (!xarr) nx_fatal("malloc failed");
-
-  MPI_Allgather(xitm, xchg_sz, MPI_BYTE, xarr, xchg_sz, MPI_BYTE,
-                nctx->localcomm);
-
-  /* lookup and store all mercury addresses */
-  bgarg.hgctx = nctx->hg_local->hg_ctx;
-  bgarg.bgdone = 0;
-  bgarg.nctx = nctx;
-
-  ret = pthread_create(&bgthread, NULL, nx_bgthread, (void*)&bgarg);
-  if (ret != 0) nx_fatal("pthread_create");
-
-  MPI_Barrier(nctx->localcomm);
-
-  hret = nx_lookup_addrs(nctx, nctx->hg_local, xarr, nctx->lsize, nctx->laddrsz,
-                         &nctx->lmap);
-  if (hret != HG_SUCCESS) {
-    nx_fatal("lo:HG_Addr_lookup");
-  }
-
-#ifdef NEXUS_DEBUG
-  nx_dump_addrs(nctx, nctx->hg_local, &nctx->lmap);
-#endif
-
-  MPI_Barrier(nctx->localcomm);
-
-  bgarg.bgdone = 1;
-  pthread_join(bgthread, NULL);
-
-  free(xarr);
-  free(xitm);
-}
-
-void nx_find_remote_addrs(nexus_ctx_t nctx, char* myaddr) {
-  int my_sz, i, j, M, c, P;
-  int *myinfo, *nodeinfo;
-  char* rank2addr;
-  xchg_dat_t *xitm, *xarr;
-  hg_return_t hret;
-
-  /* if we're alone stop here */
-  if (nctx->nnodes == 1) return;
+  /*
+   * stop here if only one node (leave node2rep at NULL).  in this case,
+   * the local mercury will do all the work.
+   */
+  if (nx->nnodes <= 1)
+    return(0);
 
   /*
    * to setup the remote network, we need to know a) which remote peers we
@@ -539,337 +366,229 @@ void nx_find_remote_addrs(nexus_ctx_t nctx, char* myaddr) {
    *
    * our first step is to prepare the rank2addr array.
    */
-  my_sz = strlen(myaddr) + 1;
-
-  /* determine the max address size for the global comm */
-  MPI_Allreduce(&my_sz, &nctx->gaddrsz, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
-
-  /* map each rank to its address */
-  rank2addr = (char*)malloc(nctx->gsize * nctx->gaddrsz);
-  if (!rank2addr) nx_fatal("malloc failed");
-
-  MPI_Allgather(myaddr, nctx->gaddrsz, MPI_BYTE, rank2addr, nctx->gaddrsz,
-                MPI_BYTE, MPI_COMM_WORLD);
-#ifdef NEXUS_DEBUG
-  for (i = 0; i < nctx->gsize; i++)
-    fprintf(stderr, "NX-%d: rank2addr[%d]=%s\n", nctx->grank, i,
-            NADDR(rank2addr, i, nctx->gaddrsz));
-#endif
+  rank2addr = (char *)malloc(nx->gsize * nx->gaddrsz);
+  if (!rank2addr) {
+    fprintf(stderr, "nx_build_rmap: rank2addr malloc failed\n");
+    GOTO_DONE(-1);
+  }
+  addrcpy = (char *)malloc(nx->gaddrsz);
+  if (!addrcpy) {
+    fprintf(stderr, "nx_build_rmap: addrcpy malloc failed\n");
+    GOTO_DONE(-1);
+  }
+  memset(addrcpy, 0, nx->gaddrsz);
+  snprintf(addrcpy, nx->gaddrsz, "%s", myaddrstr);
+  if (MPI_Allgather(addrcpy, nx->gaddrsz, MPI_BYTE,
+                    rank2addr, nx->gaddrsz, MPI_BYTE,
+                                            nx->mycomm) != MPI_SUCCESS) {
+    fprintf(stderr, "nx_build_rmap: rank2addr allgather failed\n");
+    GOTO_DONE(-1);
+  }
+  free(addrcpy);
+  addrcpy = NULL;
 
   /*
-   * we now prepare the nodeinfo array and this is done in 4 steps: 1) we find
-   * the max number of ranks per node, M, 2) have each node rep construct a
-   * (M+1)-sized array containing (# ranks, r0, r1, ...), 3) have node reps
-   * all-gather their (M+1)-sized arrays (on repcomm), and 4) have each node rep
-   * broadcasts the finished array (on localcomm)
+   * we now prepare the nodeinfo array in 4 steps:
+   * 1. find max number of ranks per node
+   * 2. have eachnode rep construct a (M+1)-sized array containing
+   *    (#ranks, r0, r1, ...)
+   * 3. have node reps all-gather their (M+1)-sized arrays over repcomm
+   * 4. have each node rep broadcast the finished array (on localcomm)
    */
 
-  /* find the max number of ranks per node (i.e., max PPN) */
-  MPI_Allreduce(&nctx->lsize, &M, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
-  /* XXX: we could replace the MPI_Allreduce() above with a smaller
-   * MPI_Allreduce() followed by an MPI_Bcast(), but we think MPI itself will do
-   * this internally */
-  nodeinfo = (int*)malloc(sizeof(int) * (M + 1) * nctx->nnodes);
-  if (!nodeinfo) nx_fatal("malloc failed");
-
-  /* prepare my info (node representatives only) */
-  if (nctx->repcomm != MPI_COMM_NULL) {
-    myinfo = (int*)malloc(sizeof(int) * (M + 1));
-    if (!myinfo) nx_fatal("malloc failed");
-
-    for (i = 0; i < M; i++)
-      myinfo[i + 1] = (i < nctx->lsize) ? nctx->local2global[i] : -1;
-    myinfo[0] = nctx->lsize;
-
-    /* exchange node information */
-    MPI_Allgather(myinfo, M + 1, MPI_INT, nodeinfo, M + 1, MPI_INT,
-                  nctx->repcomm);
-
-    free(myinfo);
+  /* 1. get "M" - max ranks per node */
+  if (MPI_Allreduce(&nx->lsize, &M, 1, MPI_INT,
+                    MPI_MAX, nx->mycomm) != MPI_SUCCESS) {
+    fprintf(stderr, "nx_build_rmap: lsize allreduce failed\n");
+    GOTO_DONE(-1);
   }
 
-  /* broadcast so everyone knows it */
-  MPI_Bcast(nodeinfo, (M + 1) * nctx->nnodes * sizeof(int), MPI_BYTE, 0,
-            nctx->localcomm);
-#ifdef NEXUS_DEBUG
-  for (j = 0; j < nctx->nnodes; j++)
-    for (i = 1; i < M + 1; i++)
-      fprintf(stderr, "NX-%d: nodeinfo[%d][%d]=%d\n", nctx->grank, j, i - 1,
-              nodeinfo[j * (M + 1) + i]);
-#endif
+  /* now malloc nodeinfo */
+  nodeinfo = (int *) malloc(sizeof(int) * (M + 1) * nx->nnodes);
+  if (!nodeinfo) {
+    fprintf(stderr, "nx_build_rmap: malloc nodeinfo failed\n");
+    GOTO_DONE(-1);
+  }
 
-  /* before we go figure out who's our peers, let's first use the nodeinfo array
-   * to construct a corresponding node2rep array. this array maps each node to
-   * its node representative.
+  /* the next two steps are for reps only */
+  if (nx->repcomm != MPI_COMM_NULL) {   /* we are a rep? */
+    /* 2. reps prepare their info */
+    myinfo = (int *)malloc(sizeof(int) * (M + 1));
+    if (!myinfo) {
+      fprintf(stderr, "nx_build_rmap: malloc myinfo failed\n");
+      GOTO_DONE(-1);
+    }
+    myinfo[0] = nx->lsize;
+    for (i = 0 ; i < M ; i++)
+      myinfo[i+1] = (i < nx->lsize) ? nx->local2global[i] : -1;
+
+    /* 3. reps exchange their info over repcomm */
+    if (MPI_Allgather(myinfo, M+1, MPI_INT,
+                      nodeinfo, M+1, MPI_INT, nx->repcomm) != MPI_SUCCESS) {
+      fprintf(stderr, "nx_build_rmap: allgather nodeinfo failed\n");
+      GOTO_DONE(-1);
+    }
+
+    free(myinfo);
+    myinfo = NULL;
+  }
+
+  /* 4. reps broadcast finished array on localcomm to all local procs */
+  if (MPI_Bcast(nodeinfo, (M+1) * nx->nnodes * sizeof(int), MPI_BYTE, 0,
+            nx->localcomm) != MPI_SUCCESS) {
+    fprintf(stderr, "nx_build_rmap: malloc local bcast nodeinfo failed\n");
+    GOTO_DONE(-1);
+  }
+
+  /*
+   * now that we have nodeinfo[], we can build nx->node2rep[] which
+   * maps node number to its rep's global rank.
    */
-  nctx->node2rep = (int*)malloc(sizeof(int) * nctx->nnodes);
-  if (!nctx->node2rep) nx_fatal("malloc failed");
+  nx->node2rep = (int*) malloc(sizeof(int) * nx->nnodes);
+  if (!nx->node2rep) {
+    fprintf(stderr, "nx_build_rmap: malloc node2rep failed\n");
+    GOTO_DONE(-1);
+  }
 
   /*
    * the representative for a node is one whose local rank is equal to our
    * node's id modulo the remote node's lsize.
    */
-  for (i = 0; i < nctx->nnodes; i++) {
-#define IDX(i) (i * (M + 1))
-    nctx->node2rep[i] =
-        nodeinfo[IDX(i) + 1 + (nctx->nodeid % nodeinfo[IDX(i)])];
-
+  for (i = 0 ; i < nx->nnodes ; i++) {   /* foreach node i */
+#define IDX(i) (i * (M+1))
+    nx->node2rep[i] = nodeinfo[IDX(i) + 1 + (nx->nodeid % nodeinfo[IDX(i)])];
 #undef IDX
   }
 
+  /* done with nodeinfo[] */
   free(nodeinfo);
+  nodeinfo = NULL;
 
   /*
-   * with rank2addr and node2rep both done, the next step is to determine
-   * who's indeed our peers. but let's first determine the max possible number
-   * of peers that we can be responsible for.
+   * we distribute 'nnodes' remote nodes among 'lsize' local procs.
+   *
+   * P = max possible number of peers we can be responsible for
    */
-  P = (nctx->nnodes / nctx->lsize) + ((nctx->nnodes % nctx->lsize) ? 1 : 0);
+  P = (nx->nnodes / nx->lsize) + ((nx->nnodes % nx->lsize) ? 1 : 0);
 
-  xarr = (xchg_dat_t*)malloc(P * (sizeof(*xarr) + nctx->gaddrsz));
-  if (!xarr) nx_fatal("malloc failed");
+  /*
+   * setup for the address lookups
+   */
+  xarray = (xchg_dat_t*)malloc(P * (sizeof(*xarray) + nx->gaddrsz));
+  if (!xarray) {
+    fprintf(stderr, "nx_build_rmap: malloc xarray failed\n");
+    GOTO_DONE(-1);
+  }
 
   /*
    * a node (node, not a rank) is a peer iff its node id modulo our node's
    * lsize is equal to our lrank.
    */
-  i = nctx->lrank;
-  c = 0;
-  while (i < nctx->nnodes) {
+  i = nx->lrank;    /* i is a node number */
+  c = 0;            /* current entry# in xarray */
+  while (i < nx->nnodes) {
 #define NADDR(x, y, s) (&x[y * s])
-    char* raddr;
+
+    char *raddr;
 
     /* skip ourselves */
-    if (i == nctx->nodeid) {
-      i += nctx->lsize;
+    if (i == nx->nodeid) {
+      i += nx->lsize;
       continue;
     }
 
-    raddr = NADDR(rank2addr, nctx->node2rep[i], nctx->gaddrsz);
+    raddr = NADDR(rank2addr, nx->node2rep[i], nx->gaddrsz);
 
-    xitm = (xchg_dat_t*)(((char*)xarr) + c * (sizeof(*xitm) + nctx->gaddrsz));
-    xitm->idx = i; /* use node id as address indexes */
-    xitm->grank = nctx->node2rep[i];
-    strcpy(xitm->addr, raddr);
+    xitem = (xchg_dat_t *)(((char*)xarray) +
+                                     c * (sizeof(*xitem) + nx->gaddrsz));
+    xitem->idx = i;   /* use node id as address indexes */
+    xitem->grank = nx->node2rep[i];
+    strcpy(xitem->addr, raddr);
 
-    i += nctx->lsize;
+    i += nx->lsize;
     c++;
 
 #undef NADDR
   }
 
   free(rank2addr);
+  rank2addr = NULL;
 
-  /* lookup addresses */
+  /* now we need to fire up remote mercury and do address lookups */
+  if (mercury_progressor_needed(nx->hg_remote) != HG_SUCCESS) {
+    fprintf(stderr, "nx_build_rmap: progressor needed failed\n");
+    GOTO_DONE(-1);
+  }
+
+
+  /* lookup addresses if we've got any */
+  MPI_Barrier(nx->mycomm);
   if (c != 0) {
-#ifdef NEXUS_DEBUG
-    for (i = 0; i < c; i++) {
-      xchg_dat_t* xi =
-          (xchg_dat_t*)(((char*)xarr) + i * (sizeof(*xi) + nctx->gaddrsz));
-      fprintf(stderr, "NX-%d: remote-peer[%d]=%d (addr=%s)\n", nctx->grank,
-              xi->idx, xi->grank, xi->addr);
-    }
-#endif
+    rv = nx_lookup_addrs(nx, nx->hg_remote, xarray, c, nx->gaddrsz, &nx->rmap);
+    if (rv < 0)
+      fprintf(stderr, "nx_build_rmap: nx_lookup_addrs failed\n");
+  }
+  MPI_Barrier(nx->mycomm);
 
-    hret = nx_lookup_addrs(nctx, nctx->hg_remote, xarr, c, nctx->gaddrsz,
-                           &nctx->rmap);
-    if (hret != HG_SUCCESS) {
-      nx_fatal("net:HG_Addr_lookup");
-    }
+  /* now we can stop mercury */
+  if (mercury_progressor_idle(nx->hg_remote) != HG_SUCCESS) {
+    fprintf(stderr, "nx_build_rmap: progressor idle failed\n");
+    GOTO_DONE(-1);
   }
 
-  free(xarr);
+  free(xarray);
+  xarray = NULL;
+
+done:
+  if (xarray) free(xarray);
+  if (rank2addr) free(rank2addr);
+  if (addrcpy) free(addrcpy);
+  if (nodeinfo) free(nodeinfo);
+  if (myinfo) free(myinfo);
+
+  return(retval);
 }
 
-/*
- * nx_discover_remote: detect remote peers and setup the remote network
- * substrate for multi-hop routing.
- */
-void nx_discover_remote(nexus_ctx_t nctx, char* hgaddr_in) {
-  hg_addr_t addr_self;
-  hg_size_t addr_sz;
-  char addr[TMPADDRSZ];
-  pthread_t bgthread; /* network bg thread */
-  struct bgthread_dat bgarg;
-  hg_return_t hret;
-  int ret;
-
-  nx_init_repcomm(nctx);
-  MPI_Bcast(&nctx->nodeid, 1, MPI_INT, 0, nctx->localcomm);
-  MPI_Bcast(&nctx->nnodes, 1, MPI_INT, 0, nctx->localcomm);
-
-  /* build the map of global rank to node id */
-  nctx->rank2node = (int*)malloc(sizeof(int) * nctx->gsize);
-  if (!nctx->rank2node) nx_fatal("malloc failed");
-
-  MPI_Allgather(&nctx->nodeid, 1, MPI_INT, nctx->rank2node, 1, MPI_INT,
-                MPI_COMM_WORLD);
-
-#ifdef NEXUS_DEBUG
-  fprintf(stderr, "NX-%d: REMOTE %s\n", nctx->grank, hgaddr_in);
-#endif
-
-  nctx->hg_remote = (nexus_hg_t*)malloc(sizeof(nexus_hg_t));
-  memset(nctx->hg_remote, 0, sizeof(nexus_hg_t));
-  nctx->hg_remote->refs = 1;
-  nctx->hg_remote->hg_cl = HG_Init(hgaddr_in, HG_TRUE);
-  if (!nctx->hg_remote->hg_cl) {
-    nx_fatal("net:HG_Init");
-  }
-  nctx->hg_remote->hg_ctx = HG_Context_create(nctx->hg_remote->hg_cl);
-  if (!nctx->hg_remote->hg_ctx) {
-    nx_fatal("net:HG_Context_create");
-  }
-
-  /* fetch self-address */
-  hret = HG_Addr_self(nctx->hg_remote->hg_cl, &addr_self);
-  if (hret != HG_SUCCESS) {
-    nx_fatal("net:HG_Addr_self");
-  }
-  addr_sz = sizeof(addr);
-  hret = HG_Addr_to_string(nctx->hg_remote->hg_cl, addr, &addr_sz, addr_self);
-  if (hret != HG_SUCCESS) {
-    nx_fatal("net:HG_Addr_to_string");
-  }
-  HG_Addr_free(nctx->hg_remote->hg_cl, addr_self);
-
-  /* lookup and store mercury addresses */
-  if (nctx->nnodes != 1) { /* only do it when we aren't alone */
-    bgarg.hgctx = nctx->hg_remote->hg_ctx;
-    bgarg.bgdone = 0;
-    bgarg.nctx = nctx;
-
-    ret = pthread_create(&bgthread, NULL, nx_bgthread, (void*)&bgarg);
-    if (ret != 0) nx_fatal("pthread_create");
-
-    MPI_Barrier(MPI_COMM_WORLD);
-
-    nx_find_remote_addrs(nctx, addr);
-#ifdef NEXUS_DEBUG
-    nx_dump_addrs(nctx, nctx->hg_remote, &nctx->rmap);
-#endif
-
-    MPI_Barrier(MPI_COMM_WORLD);
-    bgarg.bgdone = 1;
-
-    pthread_join(bgthread, NULL);
-  }
-}
-
-nexus_ctx_t nx_bootstrap_internal(char* uri, char* subnet, char* proto) {
-  nexus_ctx_t nctx;
-  char addr[TMPADDRSZ]; /* server uri buffer */
-  char* env;
-
-  nctx = new nexus_ctx;
-
-  env = getenv("NEXUS_LOOKUP_LIMIT");
-  if (env == NULL || env[0] == 0) {
-    nctx->nx_limit = DEFAULT_NX_LIMIT;
-  } else {
-    nctx->nx_limit = atoi(env);
-    if (nctx->nx_limit <= 0) {
-      nctx->nx_limit = 1;
-    }
-  }
-
-  nctx->localcomm = MPI_COMM_NULL;
-  nctx->repcomm = MPI_COMM_NULL;
-  nctx->rank2node = NULL;
-  nctx->local2global = NULL;
-  nctx->node2rep = NULL;
-
-  MPI_Comm_rank(MPI_COMM_WORLD, &nctx->grank);
-  MPI_Comm_size(MPI_COMM_WORLD, &nctx->gsize);
-
-  nx_setup_local(nctx);
-
-  if (!nctx->grank)
-    fprintf(stdout, "NX: LOCAL %s (NX-LIMIT=%d)\n",
-            nctx->hg_local ? "DONE" : "VIA REMOTE", nctx->nx_limit);
-
-  if (!uri) {
-    nx_prepare_addr(nctx, subnet, proto, addr);
-    uri = addr;
-  }
-  nx_discover_remote(nctx, uri);
-  if (!nctx->hg_local) {
-    nx_setup_local_via_remote(nctx);
-  }
-
-  if (!nctx->grank) fprintf(stdout, "NX: REMOTE DONE\n");
-
-#ifdef NEXUS_DEBUG
-  fprintf(stderr, "NX-%d: ALL DONE\n", nctx->grank);
-#endif
-
-  return nctx;
-}
-}  // namespace
-
-nexus_ctx_t nexus_bootstrap_uri(char* uri) {
-  return nx_bootstrap_internal(uri, NULL, NULL);
-}
-
-nexus_ctx_t nexus_bootstrap(char* subnet, char* proto) {
-  return nx_bootstrap_internal(NULL, subnet, proto);
-}
-
-void nexus_destroy(nexus_ctx_t nctx) {
+/* nx_destroy: do the actual work of disposing of an nctx */
+void nx_destroy(nexus_ctx_t nctx, int do_barrier) {
   nexus_map_t::iterator it;
+  hg_class_t *cls;
 
-  for (it = nctx->lmap.begin(); it != nctx->lmap.end(); ++it) {
-    if (it->second != HG_ADDR_NULL) {
-      HG_Addr_free(nctx->hg_local->hg_cl, it->second);
+  if (nctx->hg_local) {
+    cls = mercury_progressor_hgclass(nctx->hg_local);
+    for (it = nctx->lmap.begin(); it != nctx->lmap.end(); ++it) {
+      if (it->second != HG_ADDR_NULL) {
+        HG_Addr_free(cls, it->second);
+      }
     }
+    mercury_progressor_freehandle(nctx->hg_local);
   }
 
-  MPI_Barrier(nctx->localcomm);
-  MPI_Comm_free(&nctx->localcomm);
-  assert(nctx->hg_local->refs > 0);
-  nctx->hg_local->refs--;
-  if (nctx->hg_local->refs == 0) {
-    HG_Context_destroy(nctx->hg_local->hg_ctx);
-    HG_Finalize(nctx->hg_local->hg_cl);
-    free(nctx->hg_local);
+  if (nctx->localcomm != MPI_COMM_NULL) {
+    if (do_barrier)
+      MPI_Barrier(nctx->localcomm);
+    MPI_Comm_free(&nctx->localcomm);
   }
 
-  for (it = nctx->rmap.begin(); it != nctx->rmap.end(); ++it) {
-    if (it->second != HG_ADDR_NULL) {
-      HG_Addr_free(nctx->hg_remote->hg_cl, it->second);
+  if (nctx->hg_remote) {
+    cls = mercury_progressor_hgclass(nctx->hg_remote);
+    for (it = nctx->rmap.begin(); it != nctx->rmap.end(); ++it) {
+      if (it->second != HG_ADDR_NULL) {
+        HG_Addr_free(cls, it->second);
+      }
     }
+    mercury_progressor_freehandle(nctx->hg_remote);
   }
 
-  MPI_Barrier(MPI_COMM_WORLD);
+  MPI_Barrier(nctx->mycomm);
   if (nctx->repcomm != MPI_COMM_NULL) {
+    if (do_barrier)
+      MPI_Barrier(nctx->repcomm);
     MPI_Comm_free(&nctx->repcomm);
   }
-  assert(nctx->hg_remote->refs > 0);
-  nctx->hg_remote->refs--;
-  if (nctx->hg_remote->refs == 0) {
-    HG_Context_destroy(nctx->hg_remote->hg_ctx);
-    HG_Finalize(nctx->hg_remote->hg_cl);
-    free(nctx->hg_remote);
-  }
 
+  if (nctx->local2global) free(nctx->local2global);
+  if (nctx->rank2node) free(nctx->rank2node);
   if (nctx->node2rep) free(nctx->node2rep);
-  free(nctx->local2global);
-  free(nctx->rank2node);
   delete nctx;
-}
-
-hg_context_t* nexus_hgcontext_local(nexus_ctx_t nctx) {
-  return nctx->hg_local->hg_ctx;
-}
-
-hg_class_t* nexus_hgclass_local(nexus_ctx_t nctx) {
-  return nctx->hg_local->hg_cl;
-}
-
-hg_context_t* nexus_hgcontext_remote(nexus_ctx_t nctx) {
-  return nctx->hg_remote->hg_ctx;
-}
-
-hg_class_t* nexus_hgclass_remote(nexus_ctx_t nctx) {
-  return nctx->hg_remote->hg_cl;
 }

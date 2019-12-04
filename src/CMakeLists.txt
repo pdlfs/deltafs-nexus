@@ -25,9 +25,9 @@ set (deltafs-nexus-pkg-loc "share/cmake/deltafs-nexus")
 set (DELTAFS_NEXUS_VERSION_MAJOR 1)
 set (DELTAFS_NEXUS_VERSION_MINOR 0)
 set (DELTAFS_NEXUS_VERSION_PATCH 0)
-set (deltafs-nexus-vers 
+set (deltafs-nexus-vers
     "${DELTAFS_NEXUS_VERSION_MAJOR}.${DELTAFS_NEXUS_VERSION_MINOR}")
-set (DELTAFS_NEXUS_VERSION 
+set (DELTAFS_NEXUS_VERSION
     "${deltafs-nexus-vers}.${DELTAFS_NEXUS_VERSION_PATCH}")
 
 #
@@ -43,6 +43,7 @@ target_include_directories (deltafs-nexus BEFORE PUBLIC
       $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>)
 
 target_link_libraries (deltafs-nexus mercury)
+target_link_libraries (deltafs-nexus mercury-progressor)
 # XXX: cmake 3.1 and newer define a Threads::Threads imported target
 # that we should switch too when we are ready to require 3.1 or better.
 # (3.1 was released late 2014)

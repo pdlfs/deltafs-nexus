@@ -61,7 +61,8 @@
 
 /*
  * mercury_gen_ipurl: generate a mercury IP url using subnet spec
- * to select the network to use.
+ * to select the network to use.  if subnet is NULL or empty, we
+ * use the first non-127.0.0.1 IP address.
  *
  * @param protocol mercury protocol (e.g. "bmi+tcp")
  * @param subnet IP subnet to use (e.g. "10.92")
@@ -85,7 +86,7 @@ char *mercury_gen_ipurl(char *protocol, char *subnet, int port,
         return(NULL);
     }
 
-    snetlen = strlen(subnet);
+    snetlen = (subnet) ? strlen(subnet) : 0;
 
     /* walk list looking for match */
     for (cur = ifaddr ; cur != NULL ; cur = cur->ifa_next) {
@@ -99,6 +100,11 @@ char *mercury_gen_ipurl(char *protocol, char *subnet, int port,
                         tmpip, sizeof(tmpip), NULL, 0, NI_NUMERICHOST) == -1)
             continue;
 
+        if (snetlen == 0) {
+          if (strcmp(tmpip, "127.0.0.1") == 0)
+            continue; /* skip localhost */
+          break;      /* take first non-localhost match */
+        }
         if (strncmp(subnet, tmpip, snetlen) == 0)
           break;
     }
@@ -177,7 +183,7 @@ int mpi_localcfg(MPI_Comm world, int *lrnk, int *lsz) {
     if (MPI_Comm_split_type(world, MPI_COMM_TYPE_SHARED, 0,
                             MPI_INFO_NULL, &local) != MPI_SUCCESS)
     return(-1);
-  
+
     ok = MPI_Comm_rank(local, lrnk) == MPI_SUCCESS &&
          MPI_Comm_size(local, lsz) == MPI_SUCCESS;
 
@@ -198,9 +204,10 @@ int main(int argc, char **argv) {
     struct utsname uts;
     struct hostent *he;
     struct in_addr ia;
-    char *proto, *subnet, *outfile, *myurl;
+    char *proto, *subnet, *outfile, *myurl = NULL;
     hg_class_t *cls;
     hg_context_t *ctx;
+    progressor_handle_t *prg = NULL;
     nexus_ctx_t nctx = NULL;
 
     subnet = NULL;
@@ -216,7 +223,7 @@ int main(int argc, char **argv) {
     }
     argc -= optind;
     argv += optind;
-    
+
     if (subnet == NULL) {   /* pick default IP address */
         if (uname(&uts) < 0) {
             perror("uname");
@@ -238,12 +245,12 @@ int main(int argc, char **argv) {
     }
     proto = argv[0];
     outfile = (argc == 2) ? argv[1] : NULL;
-   
+
     if (MPI_Init(&argc, &argv) != MPI_SUCCESS) {
         fprintf(stderr, "MPI_Init failed\n");
         exitval = 1; goto done;
     }
-    
+
     if (strcmp(proto, "bmi+tcp") == 0) {
         if (mpi_localcfg(MPI_COMM_WORLD, &lr, &ls) < 0) {
             fprintf(stderr, "nexus-test: mpi_localcfg failed!\n");
@@ -259,7 +266,20 @@ int main(int argc, char **argv) {
         exitval = 1; goto done;
     }
 
-    nctx = nexus_bootstrap(subnet, proto);
+    if ((cls = HG_Init(myurl, HG_TRUE)) == NULL) {
+        fprintf(stderr, "nexus-test: HG_Init(%s, TRUE) failed!\n", myurl);
+        exitval = 1; goto done;
+    }
+    if ((ctx = HG_Context_create(cls)) == NULL) {
+        fprintf(stderr, "nexus-test: HG_Context_create() failed!\n");
+        exitval = 1; goto done;
+    }
+    if ((prg = mercury_progressor_init(cls, ctx)) == NULL) {
+        fprintf(stderr, "nexus-test: progressor init failed!\n");
+        exitval = 1; goto done;
+    }
+
+    nctx = nexus_bootstrap(prg, NULL);
     if (!nctx) {
         fprintf(stderr, "nexus-test: nexus bootstrap failed!\n");
         exitval = 1; goto done;
@@ -268,7 +288,9 @@ int main(int argc, char **argv) {
     nexus_dump(nctx, outfile);
 
 done:
+    if (myurl) free(myurl);
     if (nctx) nexus_destroy(nctx);
+    if (prg) mercury_progressor_freehandle(prg);
     MPI_Finalize();
     exit(exitval);
 }

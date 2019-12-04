@@ -92,7 +92,7 @@ for ($lcv = 0 ; $lcv < $gsize ; $lcv++) {
     unless (/remote (\S+)$/) {
         die "remote format error in id file $idfile";
     }
-    $addrmap{$1} = "raddr-" . $grank2nodeid{$grank} . "-" . 
+    $addrmap{$1} = "raddr-" . $grank2nodeid{$grank} . "-" .
                               $grank2lrank{$grank};
 
     $_ = <$fh>;
@@ -148,12 +148,12 @@ for ($nodeid = 0 ; $nodeid < $nnodes ; $nodeid++) {
     $v = $lo2g[$nodeid];
     @tmp = split(/ /, $v);
     for ($k = 0 ; $k < $nodesize{$nodeid} ; $k++) {
-        die "lo2g sanity check" 
+        die "lo2g sanity check"
                  unless ($tmp[$k] == $nodelrank2grank{"$nodeid.$k"});
     }
     print "  local2global: $v\n";
     print "  node2rep: ", $no2rep[$nodeid], "\n";
-    
+
     for ($lrank = 0 ; $lrank < $nodesize{$nodeid} ; $lrank++) {
         $grank = $nodelrank2grank{"$nodeid.$lrank"};
         print "  proc $nodeid.$lrank ",

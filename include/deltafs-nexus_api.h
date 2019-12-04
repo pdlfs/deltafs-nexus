@@ -31,6 +31,7 @@
 #pragma once
 
 #include <mercury.h>
+#include <mercury-progressor/mercury-progressor.h>
 #include <map>
 
 typedef struct nexus_ctx* nexus_ctx_t;
@@ -48,23 +49,25 @@ typedef enum {
   NX_DONE,        /* already at destination */
 } nexus_ret_t;
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
- * nexus_bootstrap: bootstraps the Nexus library
- * @param string of the network subnet to be preferred for Mercury endpoints
- * @param string of the Mercury protocol plugin to be preferred
+ * nexus_bootstrap: bootstrap nexus library.  on success nexus will
+ * dup the handles to keep a reference to mercury.  a collective call.
+ *
+ * @param nethand progressor handle for network (non-local) traffic
+ * @param localhand progressor handle for local traffic (e.g. na+sm)
  * @return nexus context or NULL on error
  */
-nexus_ctx_t nexus_bootstrap(char* subnet, char* proto);
+nexus_ctx_t nexus_bootstrap(progressor_handle_t *nethand,
+                            progressor_handle_t *localhand);
 
 /**
- * nexus_bootstrap_uri: bootstraps the nx library using a specific server uri
- * @param uri mercury server uri for remote forwarding
- * @return nexus context or NULL on errors
- */
-nexus_ctx_t nexus_bootstrap_uri(char* uri);
-
-/**
- * Destroys the Nexus library freeing all allocated resources
+ * Destroys the Nexus library freeing all allocated resources, including
+ * freeing its dup'd progressor_handle_t structures.
+ *
  * @param nexus context
  */
 void nexus_destroy(nexus_ctx_t nctx);
@@ -133,32 +136,20 @@ int nexus_local_size(nexus_ctx_t nctx);
 nexus_ret_t nexus_set_grank(nexus_ctx_t nctx, int rank);
 
 /**
- * Return mercury class for local (na+sm)
+ * Return nctx's progressor handle for local communication.
+ * result valid until nexus_destroy() is called.
  *
  * @param nctx context
  */
-hg_class_t* nexus_hgclass_local(nexus_ctx_t nctx);
+progressor_handle_t *nexus_localprogressor(nexus_ctx_t nctx);
 
 /**
- * Return mercury class for remote (bmi+tcp or something like that)
+ * Return nctx's progressor handle for remote communication.
+ * result valid until nexus_destroy() is called.
  *
  * @param nctx context
  */
-hg_class_t* nexus_hgclass_remote(nexus_ctx_t nctx);
-
-/**
- * Return mercury context for local (bmi+tcp or something like that)
- *
- * @param nctx context
- */
-hg_context_t* nexus_hgcontext_local(nexus_ctx_t nctx);
-
-/**
- * Return mercury context for remote (bmi+tcp or something like that)
- *
- * @param nctx context
- */
-hg_context_t* nexus_hgcontext_remote(nexus_ctx_t nctx);
+progressor_handle_t *nexus_remoteprogressor(nexus_ctx_t nctx);
 
 /**
  * Dump nexus tables (for debugging)
@@ -219,3 +210,7 @@ int nexus_iter_globalrank(nexus_iter_t nit);
  * @param nit iterator handle
  */
 int nexus_iter_subrank(nexus_iter_t nit);
+
+#ifdef __cplusplus
+}
+#endif

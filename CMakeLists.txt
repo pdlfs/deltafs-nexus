@@ -52,6 +52,7 @@ endif ()
 
 # Find required packages
 find_package (mercury CONFIG REQUIRED)
+find_package (mercury-progressor CONFIG REQUIRED)
 
 find_package (MPI MODULE REQUIRED)
 # XXX: avoid issues when MPI_CXX_COMPILE_FLAGS contains leading spaces

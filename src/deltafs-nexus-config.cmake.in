@@ -5,6 +5,7 @@
 # if you have depends, uncomment and add them: "find_dependency(Foo 2.4.1)"
 include (CMakeFindDependencyMacro)
 find_dependency(mercury)
+find_dependency(mercury-progressor)
 find_dependency(MPI)
 
 include ("${CMAKE_CURRENT_LIST_DIR}/deltafs-nexus-targets.cmake")
@@ -20,8 +21,8 @@ set_property (TARGET deltafs-nexus APPEND PROPERTY
 # mpich on ub14 gives a leading space that we need to trim off
 string (REPLACE " " ";" mpiccx_flags "${MPI_CXX_COMPILE_FLAGS}")
 foreach (lcv ${mpiccx_flags})
-    if (NOT ${lcv} STREQUAL "") 
-        set_property (TARGET deltafs-nexus APPEND PROPERTY  
+    if (NOT ${lcv} STREQUAL "")
+        set_property (TARGET deltafs-nexus APPEND PROPERTY
                       INTERFACE_COMPILE_OPTIONS ${lcv})
     endif ()
 endforeach ()
