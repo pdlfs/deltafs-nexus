@@ -241,9 +241,9 @@ int main(int argc, char **argv)
 {
     int c, lr, ls, lbase;
     char *end, *myurl = NULL;
-    hg_class_t *cls;
-    hg_context_t *ctx;
-    progressor_handle_t *prg;
+    hg_class_t *cls = NULL;
+    hg_context_t *ctx = NULL;
+    progressor_handle_t *prg = NULL;
 
     me = argv[0];
 
@@ -387,11 +387,17 @@ done:
 
     if (myurl) free(myurl);
     nexus_destroy(tctx.nctx);
+    if (prg) mercury_progressor_freehandle(prg);
+    if (ctx) HG_Context_destroy(ctx);
+    if (cls) HG_Finalize(cls);
     MPI_Finalize();
     exit(0);
 
 error:
     if (myurl) free(myurl);
+    if (prg) mercury_progressor_freehandle(prg);
+    if (ctx) HG_Context_destroy(ctx);
+    if (cls) HG_Finalize(cls);
     MPI_Finalize();
     exit(1);
 }

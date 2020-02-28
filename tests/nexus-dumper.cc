@@ -205,8 +205,8 @@ int main(int argc, char **argv) {
     struct hostent *he;
     struct in_addr ia;
     char *proto, *subnet, *outfile, *myurl = NULL;
-    hg_class_t *cls;
-    hg_context_t *ctx;
+    hg_class_t *cls = NULL;
+    hg_context_t *ctx = NULL;
     progressor_handle_t *prg = NULL;
     nexus_ctx_t nctx = NULL;
 
@@ -291,6 +291,8 @@ done:
     if (myurl) free(myurl);
     if (nctx) nexus_destroy(nctx);
     if (prg) mercury_progressor_freehandle(prg);
+    if (ctx) HG_Context_destroy(ctx);
+    if (cls) HG_Finalize(cls);
     MPI_Finalize();
     exit(exitval);
 }
