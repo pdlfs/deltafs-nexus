@@ -70,6 +70,7 @@ struct nexus_ctx {
 
   progressor_handle_t *hg_remote;    /* dup'd handle, if !NULL */
   progressor_handle_t *hg_local;     /* dup'd handle, if !NULL */
+  int internal_local;                /* true if we HG_Init'd hg_local */
 
   /* max pending hg addr lookup requests */
   int nx_limit;

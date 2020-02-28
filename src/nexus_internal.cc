@@ -553,15 +553,22 @@ done:
 void nx_destroy(nexus_ctx_t nctx, int do_barrier) {
   nexus_map_t::iterator it;
   hg_class_t *cls;
+  hg_context_t *ctx;
 
   if (nctx->hg_local) {
     cls = mercury_progressor_hgclass(nctx->hg_local);
+    ctx = mercury_progressor_hgcontext(nctx->hg_local);
     for (it = nctx->lmap.begin(); it != nctx->lmap.end(); ++it) {
       if (it->second != HG_ADDR_NULL) {
         HG_Addr_free(cls, it->second);
       }
     }
     mercury_progressor_freehandle(nctx->hg_local);
+
+    if (nctx->internal_local) {  /* shut it down if we generated it */
+      HG_Context_destroy(ctx);
+      HG_Finalize(cls);
+    }
   }
 
   if (nctx->localcomm != MPI_COMM_NULL) {

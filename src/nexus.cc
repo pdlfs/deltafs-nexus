@@ -64,6 +64,7 @@ nexus_ctx_t nexus_bootstrap(progressor_handle_t *nethand,
   nctx->repcomm = MPI_COMM_NULL;
   nctx->hg_remote = NULL;
   nctx->hg_local = NULL;
+  nctx->internal_local = 0;
   /* now safe to call nx_destroy() on nctx if there is an error */
 
   env = getenv("NEXUS_LOOKUP_LIMIT");    /* allow env to override default */
@@ -94,6 +95,7 @@ nexus_ctx_t nexus_bootstrap(progressor_handle_t *nethand,
       if (nasmcls) HG_Finalize(nasmcls);
       goto error;
     }
+    nctx->internal_local = 1; /* if we create it, we have to finalize it */
   }
 
   /*
@@ -151,6 +153,10 @@ nexus_ctx_t nexus_bootstrap(progressor_handle_t *nethand,
 
 error:
   if (nasmhand) mercury_progressor_freehandle(nasmhand);
+  if (localhand == NULL && nctx->internal_local) {
+    HG_Context_destroy(nasmctx);
+    HG_Finalize(nasmcls);
+  }
   nx_destroy(nctx, 0);
   return(NULL);
 }

@@ -137,7 +137,11 @@ nexus_ret_t nexus_set_grank(nexus_ctx_t nctx, int rank);
 
 /**
  * Return nctx's progressor handle for local communication.
- * result valid until nexus_destroy() is called.
+ * result valid until nexus_destroy() is called.  note that
+ * calling bootstrap with a NULL "localhand" causes nexus to
+ * generate an internal instance of na+sm for local RPCs.
+ * this instance will be finalized when nexus_destroy() is
+ * called (even if you dup the handle returned by nexus_localprogressor()).
  *
  * @param nctx context
  */
