@@ -82,9 +82,7 @@ nexus_ctx_t nexus_bootstrap(progressor_handle_t *nethand,
    * a new na+sm one.  the app can access this using nexus_localprogressor().
    */
   if (localhand == NULL) {
-    char naurl[32];
-    snprintf(naurl, sizeof(naurl), "na+sm://%d/0", getpid());
-    nasmcls = HG_Init(naurl, HG_TRUE);
+    nasmcls = HG_Init("na+sm", HG_TRUE);
     if (nasmcls)
       nasmctx = HG_Context_create(nasmcls);
     if (nasmcls && nasmctx)
